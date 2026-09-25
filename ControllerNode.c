@@ -1,169 +1,106 @@
 #include <stddef.h>
 
-// State Logics Global Variables
-// L1 Traffic Light Logics
-int North_South_route_L1[4];
-int West_South_route_East_North_route_L1[5];
-int North_West_route_and_West_north_route_L1[5];
-int East_West_route_L1[4];
-int East_to_North_route_L1[5];
-int South_to_East_route_L1[5];
-// L1 Traffic Lights
-int NE_L1 = 0;
-int NS_L1 = 0;
-int NW_L1 = 0;
-int EN_L1 = 0;
-int ES_L1 = 0;
-int EW_L1 = 0;
-int SN_L1 = 0;
-int SE_L1 = 0;
-int SW_L1 = 0;
-int WN_L1 = 0;
-int WE_L1 = 0;
-int WS_L1 = 0;
-// L1 Traffic Lights Outputs
-int NE_L1_Output = 0;
-int NS_L1_Output = 0;
-int NW_L1_Output = 0;
-int EN_L1_Output = 0;
-int ES_L1_Output = 0;
-int EW_L1_Output = 0;
-int SN_L1_Output = 0;
-int SE_L1_Output = 0;
-int SW_L1_Output = 0;
-int WN_L1_Output = 0;
-int WE_L1_Output = 0;
-int WS_L1_Output = 0;
-// L1 Pedestrian Lights
-int Left_NS_L1 = 0;
-int Right_NS_L1 = 0;
-int Top_EW_L1 = 0;
-int Bottom_EW_L1 = 0;
-// L1 Pedestrian Lights Outputs
-int Left_NS_L1_Output = 0;
-int Right_NS_L1_Output = 0;
-int Top_EW_L1_Output = 0;
-int Bottom_EW_L1_Output = 0;
-// L2 Traffic Light Logics
-int North_South_route_L2[4];
-int West_South_route_East_North_route_L2[5];
-int North_West_route_and_West_north_route_L2[5];
-int East_West_route_L2[4];
-int East_to_North_route_L2[5];
-int South_to_East_route_L2[5];
-// L2 Traffic Lights
-int NE_L2 = 0;
-int NS_L2 = 0;
-int NW_L2 = 0;
-int EN_L2 = 0;
-int ES_L2 = 0;
-int EW_L2 = 0;
-int SN_L2 = 0;
-int SE_L2 = 0;
-int SW_L2 = 0;
-int WN_L2 = 0;
-int WE_L2 = 0;
-int WS_L2 = 0;
-// L2 Traffic Lights Outputs
-int NE_L2_Output = 0;
-int NS_L2_Output = 0;
-int NW_L2_Output = 0;
-int EN_L2_Output = 0;
-int ES_L2_Output = 0;
-int EW_L2_Output = 0;
-int SN_L2_Output = 0;
-int SE_L2_Output = 0;
-int SW_L2_Output = 0;
-int WN_L2_Output = 0;
-int WE_L2_Output = 0;
-int WS_L2_Output = 0;
-// L2 Pedestrian Lights
-int Left_NS_L2 = 0;
-int Right_NS_L2 = 0;
-int Top_EW_L2 = 0;
-int Bottom_EW_L2 = 0;
-// L2 Pedestrian Lights Outputs
-int Left_NS_L2_Output = 0;
-int Right_NS_L2_Output = 0;
-int Top_EW_L2_Output = 0;
-int Bottom_EW_L2_Output = 0;
-// State Machine Global Variables
+
+typedef struct {
+    int time;
+    int peroid;
+} Settings;
+typedef struct {
+    int NE, NS, NW;
+    int EN, ES, EW;
+    int SN, SE, SW;
+    int WN, WE, WS;
+    int Left_NS, Right_NS;
+    int Top_EW, Bottom_EW;
+} Movements;
+
+typedef struct {
+    int North_South;
+    int West_South;
+    int North_West;
+    int East_West;
+    int East_North;
+    int South_East;
+} RouteIndices;
+
+typedef struct {
+    Movements priority;
+    Movements output;
+
+    // Scores for every variant in each route group.
+    int North_South[4];
+    int West_South[5];
+    int North_West[5];
+    int East_West[4];
+    int East_North[5];
+    int South_East[5];
+
+    RouteIndices best; // Highest-scoring variant index for each group.
+} Intersection;
+
+Intersection L1 = {0};
+Intersection L2 = {0};
+Settings settings = {0};
+
 enum states {L1_NS_and_L2_NS, L1_EW_and_L2_EW, L1_NW_and_L2_SE, L1_WS_and_L2_EN, L1_EN_and_L2_NW, L1_SE_and_L2_EW, L1_SW_and_L2_WS, L1_WE_and_L2_NW, L1_WE_and_L2_WS, L1_EN_and_L2_EW};
 enum states CurState = L1_NS_and_L2_NS;
 enum states RequestedState = L1_NS_and_L2_NS;
 int Decided_route = 0;
-int North_South_route_L1_max_index = 0;
-int West_South_route_East_North_route_L1_max_index = 0;
-int North_West_route_and_West_north_route_L1_max_index = 0;
-int East_West_route_L1_max_index = 0;
-int East_to_North_route_L1_max_index = 0;
-int South_to_East_route_L1_max_index = 0;
-int North_South_route_L2_max_index = 0;
-int West_South_route_East_North_route_L2_max_index = 0;
-int North_West_route_and_West_north_route_L2_max_index = 0;
-int East_West_route_L2_max_index = 0;
-int East_to_North_route_L2_max_index = 0;
-int South_to_East_route_L2_max_index = 0;
 
-// Function Prototypes
+int train_detected = 0; // Flag to indicate if a train is detected
+
+/* Example access:
+ * L1.priority.NE = 8;
+ * L2.output.WE = 1;
+ * North_South_route_Case_Statement(L1.best.North_South, &L1);
+ */
+
 void Find_Maximum_Index(const int *array, int size, int *max_index);
-void TrafficLight_Logics(void *inputs);
-void Find_Maximum_Index(const int *array, int size, int *max_index);
+void Calculate_Route_Scores(Intersection *light);
 void TrafficLight_Logics(void *inputs);
 void TrafficLight_State_Machine(void *state_ptr, void *inputs);
-void Reset_Traffic_Light_Outputs(int traffic_lights);
-void North_South_route_Case_Statement(int route_index, int traffic_lights);
-void West_South_route_East_North_route_Case_Statement(int route_index, int traffic_lights);
-void North_West_route_and_West_north_route_Case_Statement(int route_index, int traffic_lights);
-void East_West_route_Case_Statement(int route_index, int traffic_lights);
-void East_to_North_route_Case_Statement(int route_index, int traffic_lights);
-void South_to_East_route_Case_Statement(int route_index, int traffic_lights);
+void Reset_Traffic_Light_Outputs(Intersection *light);
+void North_South_route_Case_Statement(int route_index, Intersection *light);
+void West_South_route_East_North_route_Case_Statement(int route_index, Intersection *light);
+void North_West_route_and_West_north_route_Case_Statement(int route_index, Intersection *light);
+void East_West_route_Case_Statement(int route_index, Intersection *light);
+void East_to_North_route_Case_Statement(int route_index, Intersection *light);
+void South_to_East_route_Case_Statement(int route_index, Intersection *light);
 
-void Reset_Traffic_Light_Outputs(int traffic_lights)
-{
-    if (traffic_lights == 1) {
-        NE_L1_Output = 0;
-        NS_L1_Output = 0;
-        NW_L1_Output = 0;
-        EN_L1_Output = 0;
-        ES_L1_Output = 0;
-        EW_L1_Output = 0;
-        SN_L1_Output = 0;
-        SE_L1_Output = 0;
-        SW_L1_Output = 0;
-        WN_L1_Output = 0;
-        WE_L1_Output = 0;
-        WS_L1_Output = 0;
-        Left_NS_L1_Output = 0;
-        Right_NS_L1_Output = 0;
-        Top_EW_L1_Output = 0;
-        Bottom_EW_L1_Output = 0;
-    }
-    else if (traffic_lights == 2) {
-        NE_L2_Output = 0;
-        NS_L2_Output = 0;
-        NW_L2_Output = 0;
-        EN_L2_Output = 0;
-        ES_L2_Output = 0;
-        EW_L2_Output = 0;
-        SN_L2_Output = 0;
-        SE_L2_Output = 0;
-        SW_L2_Output = 0;
-        WN_L2_Output = 0;
-        WE_L2_Output = 0;
-        WS_L2_Output = 0;
-        Left_NS_L2_Output = 0;
-        Right_NS_L2_Output = 0;
-        Top_EW_L2_Output = 0;
-        Bottom_EW_L2_Output = 0;
+
+void StateMachine(void *state, void *inputs) {
+    enum states currentState = *(enum states *)state;
+    while (1) {
+        for (int i = 0; i < settings.time; i++) {
+            sleep(settings.peroid);
+            if (train_detected) {
+                // Handle train detection logic here
+                break; // Exit the loop if a train is detected
+            }
+        }
+        Update_Waiting_Priorities(&L1);
+        Update_Waiting_Priorities(&L2);
+        TrafficLight_Logics(inputs);
+
+        if (currentState != RequestedState) {
+            currentState = RequestedState;
+            *(enum states *)state = currentState;
+        }
+        TrafficLight_State_Machine(state, inputs);
     }
 }
 
-void TrafficLight_State_Machine(void *state_ptr, void *inputs)
+void Reset_Traffic_Light_Outputs(Intersection *light)
 {
+    if (light != NULL) {
+        light->output = (Movements){0};
+    }
+}
+
+void TrafficLight_State_Machine(void *state_ptr, void *inputs) {
     (void)inputs;
-    Reset_Traffic_Light_Outputs(1);
-    Reset_Traffic_Light_Outputs(2);
+    Reset_Traffic_Light_Outputs(&L1);
+    Reset_Traffic_Light_Outputs(&L2);
 
     if (state_ptr == NULL) {
         return;
@@ -172,73 +109,53 @@ void TrafficLight_State_Machine(void *state_ptr, void *inputs)
     const enum states *CurrentState = (const enum states *)state_ptr;
     switch (*CurrentState) {
         case L1_NS_and_L2_NS:
-            North_South_route_Case_Statement(
-                North_South_route_L1_max_index, 1);
-            North_South_route_Case_Statement(
-                North_South_route_L2_max_index, 2);
+            North_South_route_Case_Statement(L1.best.North_South, &L1);
+            North_South_route_Case_Statement(L2.best.North_South, &L2);
             break;
 
         case L1_EW_and_L2_EW:
-            East_West_route_Case_Statement(
-                East_West_route_L1_max_index, 1);
-            East_West_route_Case_Statement(
-                East_West_route_L2_max_index, 2);
+            East_West_route_Case_Statement(L1.best.East_West, &L1);
+            East_West_route_Case_Statement(L2.best.East_West, &L2);
             break;
 
         case L1_NW_and_L2_SE:
-            North_West_route_and_West_north_route_Case_Statement(
-                North_West_route_and_West_north_route_L1_max_index, 1);
-            South_to_East_route_Case_Statement(
-                South_to_East_route_L2_max_index, 2);
+            North_West_route_and_West_north_route_Case_Statement(L1.best.North_West, &L1);
+            South_to_East_route_Case_Statement(L2.best.South_East, &L2);
             break;
 
         case L1_WS_and_L2_EN:
-            West_South_route_East_North_route_Case_Statement(
-                West_South_route_East_North_route_L1_max_index, 1);
-            East_to_North_route_Case_Statement(
-                East_to_North_route_L2_max_index, 2);
+            West_South_route_East_North_route_Case_Statement(L1.best.West_South, &L1);
+            East_to_North_route_Case_Statement(L2.best.East_North, &L2);
             break;
 
         case L1_EN_and_L2_NW:
-            East_to_North_route_Case_Statement(
-                East_to_North_route_L1_max_index, 1);
-            North_West_route_and_West_north_route_Case_Statement(
-                North_West_route_and_West_north_route_L2_max_index, 2);
+            East_to_North_route_Case_Statement(L1.best.East_North, &L1);
+            North_West_route_and_West_north_route_Case_Statement(L2.best.North_West, &L2);
             break;
 
         case L1_SE_and_L2_EW:
-            South_to_East_route_Case_Statement(
-                South_to_East_route_L1_max_index, 1);
-            East_West_route_Case_Statement(
-                East_West_route_L2_max_index, 2);
+            South_to_East_route_Case_Statement(L1.best.South_East, &L1);
+            East_West_route_Case_Statement(L2.best.East_West, &L2);
             break;
 
         case L1_SW_and_L2_WS:
-            South_to_East_route_Case_Statement(
-                South_to_East_route_L1_max_index, 1);
-            West_South_route_East_North_route_Case_Statement(
-                West_South_route_East_North_route_L2_max_index, 2);
+            South_to_East_route_Case_Statement(L1.best.South_East, &L1);
+            West_South_route_East_North_route_Case_Statement(L2.best.West_South, &L2);
             break;
 
         case L1_WE_and_L2_NW:
-            East_West_route_Case_Statement(
-                East_West_route_L1_max_index, 1);
-            North_West_route_and_West_north_route_Case_Statement(
-                North_West_route_and_West_north_route_L2_max_index, 2);
+            East_West_route_Case_Statement(L1.best.East_West, &L1);
+            North_West_route_and_West_north_route_Case_Statement(L2.best.North_West, &L2);
             break;
 
         case L1_WE_and_L2_WS:
-            East_West_route_Case_Statement(
-                East_West_route_L1_max_index, 1);
-            West_South_route_East_North_route_Case_Statement(
-                West_South_route_East_North_route_L2_max_index, 2);
+            East_West_route_Case_Statement(L1.best.East_West, &L1);
+            West_South_route_East_North_route_Case_Statement(L2.best.West_South, &L2);
             break;
 
         case L1_EN_and_L2_EW:
-            East_to_North_route_Case_Statement(
-                East_to_North_route_L1_max_index, 1);
-            East_West_route_Case_Statement(
-                East_West_route_L2_max_index, 2);
+            East_to_North_route_Case_Statement(L1.best.East_North, &L1);
+            East_West_route_Case_Statement(L2.best.East_West, &L2);
             break;
 
         default:
@@ -247,76 +164,44 @@ void TrafficLight_State_Machine(void *state_ptr, void *inputs)
     }
 }
 
-void North_South_route_Case_Statement(int route_index, int traffic_lights)
+void North_South_route_Case_Statement(int route_index, Intersection *light)
 {
-    if (traffic_lights != 1 && traffic_lights != 2) {
+    if (light == NULL) {
         return;
     }
 
-    Reset_Traffic_Light_Outputs(traffic_lights);
+    Reset_Traffic_Light_Outputs(light);
     switch (route_index) {
         case 0:
             // Enable: NS, SN, Left_NS, Right_NS.
-            if (traffic_lights == 1) {
-                NS_L1_Output = 1;
-                SN_L1_Output = 1;
-                Left_NS_L1_Output = 1;
-                Right_NS_L1_Output = 1;
-            }
-            else {
-                NS_L2_Output = 1;
-                SN_L2_Output = 1;
-                Left_NS_L2_Output = 1;
-                Right_NS_L2_Output = 1;
-            }
+            light->output.NS = 1;
+            light->output.SN = 1;
+            light->output.Left_NS = 1;
+            light->output.Right_NS = 1;
             break;
 
         case 1:
             // Enable: NS, SN, NE, Left_NS.
-            if (traffic_lights == 1) {
-                NS_L1_Output = 1;
-                SN_L1_Output = 1;
-                NE_L1_Output = 1;
-                Left_NS_L1_Output = 1;
-            }
-            else {
-                NS_L2_Output = 1;
-                SN_L2_Output = 1;
-                NE_L2_Output = 1;
-                Left_NS_L2_Output = 1;
-            }
+            light->output.NS = 1;
+            light->output.SN = 1;
+            light->output.NE = 1;
+            light->output.Left_NS = 1;
             break;
 
         case 2:
             // Enable: NS, SN, SW, Right_NS.
-            if (traffic_lights == 1) {
-                NS_L1_Output = 1;
-                SN_L1_Output = 1;
-                SW_L1_Output = 1;
-                Right_NS_L1_Output = 1;
-            }
-            else {
-                NS_L2_Output = 1;
-                SN_L2_Output = 1;
-                SW_L2_Output = 1;
-                Right_NS_L2_Output = 1;
-            }
+            light->output.NS = 1;
+            light->output.SN = 1;
+            light->output.SW = 1;
+            light->output.Right_NS = 1;
             break;
 
         case 3:
             // Enable: NS, SN, NE, SW.
-            if (traffic_lights == 1) {
-                NS_L1_Output = 1;
-                SN_L1_Output = 1;
-                NE_L1_Output = 1;
-                SW_L1_Output = 1;
-            }
-            else {
-                NS_L2_Output = 1;
-                SN_L2_Output = 1;
-                NE_L2_Output = 1;
-                SW_L2_Output = 1;
-            }
+            light->output.NS = 1;
+            light->output.SN = 1;
+            light->output.NE = 1;
+            light->output.SW = 1;
             break;
 
         default:
@@ -325,92 +210,52 @@ void North_South_route_Case_Statement(int route_index, int traffic_lights)
     }
 }
 
-void West_South_route_East_North_route_Case_Statement(int route_index, int traffic_lights)
+void West_South_route_East_North_route_Case_Statement(int route_index, Intersection *light)
 {
-    if (traffic_lights != 1 && traffic_lights != 2) {
+    if (light == NULL) {
         return;
     }
 
-    Reset_Traffic_Light_Outputs(traffic_lights);
+    Reset_Traffic_Light_Outputs(light);
     switch (route_index) {
         case 0:
             // Enable: NE, SW, WS, WN.
-            if (traffic_lights == 1) {
-                NE_L1_Output = 1;
-                SW_L1_Output = 1;
-                WS_L1_Output = 1;
-                WN_L1_Output = 1;
-            }
-            else {
-                NE_L2_Output = 1;
-                SW_L2_Output = 1;
-                WS_L2_Output = 1;
-                WN_L2_Output = 1;
-            }
+            light->output.NE = 1;
+            light->output.SW = 1;
+            light->output.WS = 1;
+            light->output.WN = 1;
             break;
 
         case 1:
             // Enable: WS, SW, WN, WE.
-            if (traffic_lights == 1) {
-                WS_L1_Output = 1;
-                SW_L1_Output = 1;
-                WN_L1_Output = 1;
-                WE_L1_Output = 1;
-            }
-            else {
-                WS_L2_Output = 1;
-                SW_L2_Output = 1;
-                WN_L2_Output = 1;
-                WE_L2_Output = 1;
-            }
+            light->output.WS = 1;
+            light->output.SW = 1;
+            light->output.WN = 1;
+            light->output.WE = 1;
             break;
 
         case 2:
             // Enable: SW, WS, WN, Right_NS.
-            if (traffic_lights == 1) {
-                SW_L1_Output = 1;
-                WS_L1_Output = 1;
-                WN_L1_Output = 1;
-                Right_NS_L1_Output = 1;
-            }
-            else {
-                SW_L2_Output = 1;
-                WS_L2_Output = 1;
-                WN_L2_Output = 1;
-                Right_NS_L2_Output = 1;
-            }
+            light->output.SW = 1;
+            light->output.WS = 1;
+            light->output.WN = 1;
+            light->output.Right_NS = 1;
             break;
 
         case 3:
             // Enable: SW, WS, WE, Top_EW.
-            if (traffic_lights == 1) {
-                SW_L1_Output = 1;
-                WS_L1_Output = 1;
-                WE_L1_Output = 1;
-                Top_EW_L1_Output = 1;
-            }
-            else {
-                SW_L2_Output = 1;
-                WS_L2_Output = 1;
-                WE_L2_Output = 1;
-                Top_EW_L2_Output = 1;
-            }
+            light->output.SW = 1;
+            light->output.WS = 1;
+            light->output.WE = 1;
+            light->output.Top_EW = 1;
             break;
 
         case 4:
             // Enable: SW, WS, Top_EW, Right_NS.
-            if (traffic_lights == 1) {
-                SW_L1_Output = 1;
-                WS_L1_Output = 1;
-                Top_EW_L1_Output = 1;
-                Right_NS_L1_Output = 1;
-            }
-            else {
-                SW_L2_Output = 1;
-                WS_L2_Output = 1;
-                Top_EW_L2_Output = 1;
-                Right_NS_L2_Output = 1;
-            }
+            light->output.SW = 1;
+            light->output.WS = 1;
+            light->output.Top_EW = 1;
+            light->output.Right_NS = 1;
             break;
 
         default:
@@ -419,92 +264,51 @@ void West_South_route_East_North_route_Case_Statement(int route_index, int traff
     }
 }
 
-void North_West_route_and_West_north_route_Case_Statement(int route_index, int traffic_lights)
-{
-    if (traffic_lights != 1 && traffic_lights != 2) {
+void North_West_route_and_West_north_route_Case_Statement(int route_index, Intersection *light) {
+    if (light == NULL) {
         return;
     }
 
-    Reset_Traffic_Light_Outputs(traffic_lights);
+    Reset_Traffic_Light_Outputs(light);
     switch (route_index) {
         case 0:
             // Enable: NW, WN, NS, NE.
-            if (traffic_lights == 1) {
-                NW_L1_Output = 1;
-                WN_L1_Output = 1;
-                NS_L1_Output = 1;
-                NE_L1_Output = 1;
-            }
-            else {
-                NW_L2_Output = 1;
-                WN_L2_Output = 1;
-                NS_L2_Output = 1;
-                NE_L2_Output = 1;
-            }
+            light->output.NW = 1;
+            light->output.WN = 1;
+            light->output.NS = 1;
+            light->output.NE = 1;
             break;
 
         case 1:
             // Enable: NW, WN, NE, ES.
-            if (traffic_lights == 1) {
-                NW_L1_Output = 1;
-                WN_L1_Output = 1;
-                NE_L1_Output = 1;
-                ES_L1_Output = 1;
-            }
-            else {
-                NW_L2_Output = 1;
-                WN_L2_Output = 1;
-                NE_L2_Output = 1;
-                ES_L2_Output = 1;
-            }
+            light->output.NW = 1;
+            light->output.WN = 1;
+            light->output.NE = 1;
+            light->output.ES = 1;
             break;
 
         case 2:
             // Enable: NW, WN, NE, Bottom_EW.
-            if (traffic_lights == 1) {
-                NW_L1_Output = 1;
-                WN_L1_Output = 1;
-                NE_L1_Output = 1;
-                Bottom_EW_L1_Output = 1;
-            }
-            else {
-                NW_L2_Output = 1;
-                WN_L2_Output = 1;
-                NE_L2_Output = 1;
-                Bottom_EW_L2_Output = 1;
-            }
+            light->output.NW = 1;
+            light->output.WN = 1;
+            light->output.NE = 1;
+            light->output.Bottom_EW = 1;
             break;
 
         case 3:
             // Enable: NW, WN, NS, Right_NS.
-            if (traffic_lights == 1) {
-                NW_L1_Output = 1;
-                WN_L1_Output = 1;
-                NS_L1_Output = 1;
-                Right_NS_L1_Output = 1;
-            }
-            else {
-                NW_L2_Output = 1;
-                WN_L2_Output = 1;
-                NS_L2_Output = 1;
-                Right_NS_L2_Output = 1;
-            }
+            light->output.NW = 1;
+            light->output.WN = 1;
+            light->output.NS = 1;
+            light->output.Right_NS = 1;
             break;
 
         case 4:
             // Enable: NW, WN, Bottom_EW, Right_NS.
-            if (traffic_lights == 1) {
-                NW_L1_Output = 1;
-                WN_L1_Output = 1;
-                Bottom_EW_L1_Output = 1;
-                Right_NS_L1_Output = 1;
-            }
-            else {
-                NW_L2_Output = 1;
-                WN_L2_Output = 1;
-                Bottom_EW_L2_Output = 1;
-                Right_NS_L2_Output = 1;
-            }
+            light->output.NW = 1;
+            light->output.WN = 1;
+            light->output.Bottom_EW = 1;
+            light->output.Right_NS = 1;
             break;
 
         default:
@@ -513,76 +317,43 @@ void North_West_route_and_West_north_route_Case_Statement(int route_index, int t
     }
 }
 
-void East_West_route_Case_Statement(int route_index, int traffic_lights)
-{
-    if (traffic_lights != 1 && traffic_lights != 2) {
+void East_West_route_Case_Statement(int route_index, Intersection *light) {
+    if (light == NULL) {
         return;
     }
 
-    Reset_Traffic_Light_Outputs(traffic_lights);
+    Reset_Traffic_Light_Outputs(light);
     switch (route_index) {
         case 0:
             // Enable: EW, WE, WN, ES.
-            if (traffic_lights == 1) {
-                EW_L1_Output = 1;
-                WE_L1_Output = 1;
-                WN_L1_Output = 1;
-                ES_L1_Output = 1;
-            }
-            else {
-                EW_L2_Output = 1;
-                WE_L2_Output = 1;
-                WN_L2_Output = 1;
-                ES_L2_Output = 1;
-            }
+            light->output.EW = 1;
+            light->output.WE = 1;
+            light->output.WN = 1;
+            light->output.ES = 1;
             break;
 
         case 1:
             // Enable: EW, WE, WN, Bottom_EW.
-            if (traffic_lights == 1) {
-                EW_L1_Output = 1;
-                WE_L1_Output = 1;
-                WN_L1_Output = 1;
-                Bottom_EW_L1_Output = 1;
-            }
-            else {
-                EW_L2_Output = 1;
-                WE_L2_Output = 1;
-                WN_L2_Output = 1;
-                Bottom_EW_L2_Output = 1;
-            }
+            light->output.EW = 1;
+            light->output.WE = 1;
+            light->output.WN = 1;
+            light->output.Bottom_EW = 1;
             break;
 
         case 2:
             // Enable: EW, WE, ES, Top_EW.
-            if (traffic_lights == 1) {
-                EW_L1_Output = 1;
-                WE_L1_Output = 1;
-                ES_L1_Output = 1;
-                Top_EW_L1_Output = 1;
-            }
-            else {
-                EW_L2_Output = 1;
-                WE_L2_Output = 1;
-                ES_L2_Output = 1;
-                Top_EW_L2_Output = 1;
-            }
+            light->output.EW = 1;
+            light->output.WE = 1;
+            light->output.ES = 1;
+            light->output.Top_EW = 1;
             break;
 
         case 3:
             // Enable: EW, WE, Top_EW, Bottom_EW.
-            if (traffic_lights == 1) {
-                EW_L1_Output = 1;
-                WE_L1_Output = 1;
-                Top_EW_L1_Output = 1;
-                Bottom_EW_L1_Output = 1;
-            }
-            else {
-                EW_L2_Output = 1;
-                WE_L2_Output = 1;
-                Top_EW_L2_Output = 1;
-                Bottom_EW_L2_Output = 1;
-            }
+            light->output.EW = 1;
+            light->output.WE = 1;
+            light->output.Top_EW = 1;
+            light->output.Bottom_EW = 1;
             break;
 
         default:
@@ -591,92 +362,51 @@ void East_West_route_Case_Statement(int route_index, int traffic_lights)
     }
 }
 
-void East_to_North_route_Case_Statement(int route_index, int traffic_lights)
-{
-    if (traffic_lights != 1 && traffic_lights != 2) {
+void East_to_North_route_Case_Statement(int route_index, Intersection *light) {
+    if (light == NULL) {
         return;
     }
 
-    Reset_Traffic_Light_Outputs(traffic_lights);
+    Reset_Traffic_Light_Outputs(light);
     switch (route_index) {
         case 0:
             // Enable: NE, ES, EN, SW.
-            if (traffic_lights == 1) {
-                NE_L1_Output = 1;
-                ES_L1_Output = 1;
-                EN_L1_Output = 1;
-                SW_L1_Output = 1;
-            }
-            else {
-                NE_L2_Output = 1;
-                ES_L2_Output = 1;
-                EN_L2_Output = 1;
-                SW_L2_Output = 1;
-            }
+            light->output.NE = 1;
+            light->output.ES = 1;
+            light->output.EN = 1;
+            light->output.SW = 1;
             break;
 
         case 1:
             // Enable: NE, ES, EN, EW.
-            if (traffic_lights == 1) {
-                NE_L1_Output = 1;
-                ES_L1_Output = 1;
-                EN_L1_Output = 1;
-                EW_L1_Output = 1;
-            }
-            else {
-                NE_L2_Output = 1;
-                ES_L2_Output = 1;
-                EN_L2_Output = 1;
-                EW_L2_Output = 1;
-            }
+            light->output.NE = 1;
+            light->output.ES = 1;
+            light->output.EN = 1;
+            light->output.EW = 1;
             break;
 
         case 2:
             // Enable: NE, ES, EN, Bottom_EW.
-            if (traffic_lights == 1) {
-                NE_L1_Output = 1;
-                ES_L1_Output = 1;
-                EN_L1_Output = 1;
-                Bottom_EW_L1_Output = 1;
-            }
-            else {
-                NE_L2_Output = 1;
-                ES_L2_Output = 1;
-                EN_L2_Output = 1;
-                Bottom_EW_L2_Output = 1;
-            }
+            light->output.NE = 1;
+            light->output.ES = 1;
+            light->output.EN = 1;
+            light->output.Bottom_EW = 1;
             break;
 
         case 3:
             // Enable: NE, EW, EN, Bottom_EW.
-            if (traffic_lights == 1) {
-                NE_L1_Output = 1;
-                EW_L1_Output = 1;
-                EN_L1_Output = 1;
-                Bottom_EW_L1_Output = 1;
-            }
-            else {
-                NE_L2_Output = 1;
-                EW_L2_Output = 1;
-                EN_L2_Output = 1;
-                Bottom_EW_L2_Output = 1;
-            }
+            light->output.NE = 1;
+            light->output.EW = 1;
+            light->output.EN = 1;
+            light->output.Bottom_EW = 1;
             break;
 
         case 4:
             // Enable: NE, Top_EW, EN, Bottom_EW.
-            if (traffic_lights == 1) {
-                NE_L1_Output = 1;
-                Top_EW_L1_Output = 1;
-                EN_L1_Output = 1;
-                Bottom_EW_L1_Output = 1;
-            }
-            else {
-                NE_L2_Output = 1;
-                Top_EW_L2_Output = 1;
-                EN_L2_Output = 1;
-                Bottom_EW_L2_Output = 1;
-            }
+            light->output.NE = 1;
+            light->output.Top_EW = 1;
+            light->output.EN = 1;
+            light->output.Bottom_EW = 1;
             break;
 
         default:
@@ -685,92 +415,51 @@ void East_to_North_route_Case_Statement(int route_index, int traffic_lights)
     }
 }
 
-void South_to_East_route_Case_Statement(int route_index, int traffic_lights)
-{
-    if (traffic_lights != 1 && traffic_lights != 2) {
+void South_to_East_route_Case_Statement(int route_index, Intersection *light) {
+    if (light == NULL) {
         return;
     }
 
-    Reset_Traffic_Light_Outputs(traffic_lights);
+    Reset_Traffic_Light_Outputs(light);
     switch (route_index) {
         case 0:
             // Enable: ES, SE, SW, WN.
-            if (traffic_lights == 1) {
-                ES_L1_Output = 1;
-                SE_L1_Output = 1;
-                SW_L1_Output = 1;
-                WN_L1_Output = 1;
-            }
-            else {
-                ES_L2_Output = 1;
-                SE_L2_Output = 1;
-                SW_L2_Output = 1;
-                WN_L2_Output = 1;
-            }
+            light->output.ES = 1;
+            light->output.SE = 1;
+            light->output.SW = 1;
+            light->output.WN = 1;
             break;
 
         case 1:
             // Enable: ES, SE, SW, SN.
-            if (traffic_lights == 1) {
-                ES_L1_Output = 1;
-                SE_L1_Output = 1;
-                SW_L1_Output = 1;
-                SN_L1_Output = 1;
-            }
-            else {
-                ES_L2_Output = 1;
-                SE_L2_Output = 1;
-                SW_L2_Output = 1;
-                SN_L2_Output = 1;
-            }
+            light->output.ES = 1;
+            light->output.SE = 1;
+            light->output.SW = 1;
+            light->output.SN = 1;
             break;
 
         case 2:
             // Enable: ES, SE, SW, Bottom_EW.
-            if (traffic_lights == 1) {
-                ES_L1_Output = 1;
-                SE_L1_Output = 1;
-                SW_L1_Output = 1;
-                Bottom_EW_L1_Output = 1;
-            }
-            else {
-                ES_L2_Output = 1;
-                SE_L2_Output = 1;
-                SW_L2_Output = 1;
-                Bottom_EW_L2_Output = 1;
-            }
+            light->output.ES = 1;
+            light->output.SE = 1;
+            light->output.SW = 1;
+            light->output.Bottom_EW = 1;
             break;
 
         case 3:
             // Enable: ES, SE, SN, Bottom_EW.
-            if (traffic_lights == 1) {
-                ES_L1_Output = 1;
-                SE_L1_Output = 1;
-                SN_L1_Output = 1;
-                Bottom_EW_L1_Output = 1;
-            }
-            else {
-                ES_L2_Output = 1;
-                SE_L2_Output = 1;
-                SN_L2_Output = 1;
-                Bottom_EW_L2_Output = 1;
-            }
+            light->output.ES = 1;
+            light->output.SE = 1;
+            light->output.SN = 1;
+            light->output.Bottom_EW = 1;
             break;
 
         case 4:
             // Enable: ES, SE, Top_EW, Bottom_EW.
-            if (traffic_lights == 1) {
-                ES_L1_Output = 1;
-                SE_L1_Output = 1;
-                Top_EW_L1_Output = 1;
-                Bottom_EW_L1_Output = 1;
-            }
-            else {
-                ES_L2_Output = 1;
-                SE_L2_Output = 1;
-                Top_EW_L2_Output = 1;
-                Bottom_EW_L2_Output = 1;
-            }
+            light->output.ES = 1;
+            light->output.SE = 1;
+            light->output.Top_EW = 1;
+            light->output.Bottom_EW = 1;
             break;
 
         default:
@@ -779,177 +468,84 @@ void South_to_East_route_Case_Statement(int route_index, int traffic_lights)
     }
 }
 
-/* state_ptr points to an int that receives the chosen TrafficRoutes index. */
-void TrafficLight_Logics(void *inputs) {
+void Calculate_Route_Scores(Intersection *light)
+{
+    if (light == NULL) {
+        return;
+    }
 
-    // Calculation Variables
-    int Max_indexes_L1[6];
-    int Max_indexes_L2[6];
-    // L1 Traffic Light Logics
-	int North_South_route_Without_turn_L1 = NS_L1 + SN_L1 + Left_NS_L1 + Right_NS_L1; // North South route (Without turn) = NS + SN + PD (Left North South + Right North South) 
-    int North_South_route_With_NE_turn_L1 = NS_L1 + SN_L1 + NE_L1 + Left_NS_L1; // North South route (With NE turn) = NS + SN + NE + PD(Left North South) 
-    int North_South_route_With_SW_turn_L1 = NS_L1 + SN_L1 + SW_L1 + Right_NS_L1; // North South route (With SW turn) = NS + SN + SW + PD(Right North South) 
-    int North_South_route_With_NE_and_SW_turn_L1 = NS_L1 + SN_L1 + NE_L1 + SW_L1; // North South route (With NE and SW turn) NS + SN + NE + SW 
-    North_South_route_L1[0] = North_South_route_Without_turn_L1;
-    North_South_route_L1[1] = North_South_route_With_NE_turn_L1;
-    North_South_route_L1[2] = North_South_route_With_SW_turn_L1;
-    North_South_route_L1[3] = North_South_route_With_NE_and_SW_turn_L1;
-    Find_Maximum_Index(North_South_route_L1, 4, &Max_indexes_L1[0]);
-    int West_South_route_East_North_route_With_WN_and_NE_turn_L1 = NE_L1 + SW_L1 + WS_L1 + WN_L1; // West South route and South West route (With WN and NE turn) = NE + SW + WS + WN 
-    int West_South_route_East_North_route_With_WN_and_WE_turn_L1 = WS_L1 + SW_L1 + WN_L1 + WE_L1; // West South route and South West route (With WN and WE turn) = WS + SW + WN + WE 
-    int West_South_route_East_North_route_With_WN_turn_L1 = SW_L1 + WS_L1 + WN_L1 + Right_NS_L1; // West South route and South West route (With WN turn) = SW + WS + WN + PD(Right North South)
-    int West_South_route_East_North_route_With_WE_turn_L1 = SW_L1 + WS_L1 + WE_L1 + Top_EW_L1; // West South route and South West route (With WE turn) = SW + WS + WE + PD(Top East West) 
-    int West_South_route_East_North_route_Without_turn_L1 = SW_L1 + WS_L1 + Top_EW_L1 + Right_NS_L1; // West South route and South West route (Without turn) = SW + WS + PD(Top East West + Right North South) 
-    West_South_route_East_North_route_L1[0] = West_South_route_East_North_route_With_WN_and_NE_turn_L1;
-    West_South_route_East_North_route_L1[1] = West_South_route_East_North_route_With_WN_and_WE_turn_L1;
-    West_South_route_East_North_route_L1[2] = West_South_route_East_North_route_With_WN_turn_L1;
-    West_South_route_East_North_route_L1[3] = West_South_route_East_North_route_With_WE_turn_L1;
-    West_South_route_East_North_route_L1[4] = West_South_route_East_North_route_Without_turn_L1;
-    Find_Maximum_Index(West_South_route_East_North_route_L1, 5, &Max_indexes_L1[1]);
-    int North_West_route_and_West_north_route_With_NS_and_NE_turn_L1 = NW_L1 + WN_L1 + NS_L1 + NE_L1; // North_West route and West north route (With NS, NE) = NW + WN + NS + NE 
-    int North_West_route_and_West_north_route_With_NE_and_ES_turn_L1 = NW_L1 + WN_L1 + NE_L1 + ES_L1; // North_West route and West north route (With NE, ES) = NW + WN + NE + ES 
-    int North_West_route_and_West_north_route_With_NE_turn_L1 = NW_L1 + WN_L1 + NE_L1 + Bottom_EW_L1; // North_West route and West north route (With NE) = NW + WN + NE + PD (Bottom East West) 
-    int North_West_route_and_West_north_route_With_NS_turn_L1 = NW_L1 + WN_L1 + NS_L1 + Right_NS_L1; // North_West route and West north route (With NS) = NW + WN + NS + PD (Right North South) 
-    int North_West_route_and_West_north_route_Without_turn_L1 = NW_L1 + WN_L1 + Bottom_EW_L1 + Right_NS_L1; // North_West route and West north route (Without) = NW + WN + PD (Bottom East West + Right North South) 
-    North_West_route_and_West_north_route_L1[0] = North_West_route_and_West_north_route_With_NS_and_NE_turn_L1;
-    North_West_route_and_West_north_route_L1[1] = North_West_route_and_West_north_route_With_NE_and_ES_turn_L1;
-    North_West_route_and_West_north_route_L1[2] = North_West_route_and_West_north_route_With_NE_turn_L1;
-    North_West_route_and_West_north_route_L1[3] = North_West_route_and_West_north_route_With_NS_turn_L1;
-    North_West_route_and_West_north_route_L1[4] = North_West_route_and_West_north_route_Without_turn_L1;
-    Find_Maximum_Index(North_West_route_and_West_north_route_L1, 5, &Max_indexes_L1[2]);
-    int East_West_route_With_WN_and_ES_turn_L1 = EW_L1 + WE_L1 + WN_L1 + ES_L1; // East West route and West to South (With WN and ES turn) = WN + WE + EW + ES 
-    int East_West_route_With_WN_turn_L1 = EW_L1 + WE_L1 + WN_L1 + Bottom_EW_L1; // East West route and West to South (With WN) = WN + WE + EW + PD(Bottom East West) 
-    int East_West_route_With_ES_turn_L1 = EW_L1 + WE_L1 + ES_L1 + Top_EW_L1; // East West route and West to South (With ES) = WE + EW + ES + PD(Top East West) 
-    int East_West_route_Without_turn_L1 = EW_L1 + WE_L1 + Top_EW_L1 + Bottom_EW_L1; // East West route and West to South (Without turns) = WE + EW + PD(Upper East West + Bottom East West) 
-    East_West_route_L1[0] = East_West_route_With_WN_and_ES_turn_L1;
-    East_West_route_L1[1] = East_West_route_With_WN_turn_L1;
-    East_West_route_L1[2] = East_West_route_With_ES_turn_L1;
-    East_West_route_L1[3] = East_West_route_Without_turn_L1;
-    Find_Maximum_Index(East_West_route_L1, 4, &Max_indexes_L1[3]);
-    int East_to_North_route_With_SW_and_ES_turn_L1 = NE_L1 + ES_L1 + EN_L1 + SW_L1; // East to North route (With SW and ES turn) = NE + ES + EN + SW 
-    int East_to_North_route_With_EW_and_ES_turn_L1 = NE_L1 + ES_L1 + EN_L1 + EW_L1; // East to North route (With EW and ES turn) = NE + ES + EN + EW 
-    int East_to_North_route_With_ES_turn_L1 = NE_L1 + ES_L1 + EN_L1 + Bottom_EW_L1; // East to North route (With ES turn) = NE + ES + EN + PD(Bottom East West)
-    int East_to_North_route_With_EW_turn_L1 = NE_L1 + EW_L1 + EN_L1 + Bottom_EW_L1; // East to North route (With EW turn) = NE + EW + EN + PD(Bottom East West)
-    int East_to_North_route_Without_turn_L1 = NE_L1 + Top_EW_L1 + EN_L1 + Bottom_EW_L1; // East to North route (Without turn) = NE + ES + PD(Left North South + Bottom East West) 
-    East_to_North_route_L1[0] = East_to_North_route_With_SW_and_ES_turn_L1;
-    East_to_North_route_L1[1] = East_to_North_route_With_EW_and_ES_turn_L1;
-    East_to_North_route_L1[2] = East_to_North_route_With_ES_turn_L1;
-    East_to_North_route_L1[3] = East_to_North_route_With_EW_turn_L1;
-    East_to_North_route_L1[4] = East_to_North_route_Without_turn_L1;
-    Find_Maximum_Index(East_to_North_route_L1, 5, &Max_indexes_L1[4]);
-    int South_to_East_route_With_WN_and_SW_turn_L1 = ES_L1 + SE_L1 + SW_L1 + WN_L1; // South to East route (With WN and SW) = ES + SE + SW + WN 
-    int South_to_East_route_With_SN_and_SW_turn_L1 = ES_L1 + SE_L1 + SW_L1 + SN_L1; // South to East route (With SN and SW) = ES + SE + SW + SN 
-    int South_to_East_route_With_SW_turn_L1 = ES_L1 + SE_L1 + SW_L1 + Bottom_EW_L1; // South to East route (With SW turn) = ES + SE + SW + PD(Upper East West) 
-    int South_to_East_route_With_SN_turn_L1 = ES_L1 + SE_L1 + SN_L1 + Bottom_EW_L1; // South to East route (With SN turn) = ES + SE + SN + PD(Left North South) 
-    int South_to_East_route_Without_turn_L1 = ES_L1 + SE_L1 + Top_EW_L1 + Bottom_EW_L1; // South to East route (Without turn) = ES + SE + PD(Upper East West + Left North South) 
-    South_to_East_route_L1[0] = South_to_East_route_With_WN_and_SW_turn_L1;
-    South_to_East_route_L1[1] = South_to_East_route_With_SN_and_SW_turn_L1;
-    South_to_East_route_L1[2] = South_to_East_route_With_SW_turn_L1;
-    South_to_East_route_L1[3] = South_to_East_route_With_SN_turn_L1;
-    South_to_East_route_L1[4] = South_to_East_route_Without_turn_L1;
-    Find_Maximum_Index(South_to_East_route_L1, 5, &Max_indexes_L1[5]);
-    // L2 Traffic Light Logics
-	int North_South_route_Without_turn_L2 = NS_L2 + SN_L2 + Left_NS_L2 + Right_NS_L2; // North South route (Without turn) = NS + SN + PD (Left North South + Right North South) 
-    int North_South_route_With_NE_turn_L2 = NS_L2 + SN_L2 + NE_L2 + Left_NS_L2; // North South route (With NE turn) = NS + SN + NE + PD(Left North South) 
-    int North_South_route_With_SW_turn_L2 = NS_L2 + SN_L2 + SW_L2 + Right_NS_L2; // North South route (With SW turn) = NS + SN + SW + PD(Right North South) 
-    int North_South_route_With_NE_and_SW_turn_L2 = NS_L2 + SN_L2 + NE_L2 + SW_L2; // North South route (With NE and SW turn) NS + SN + NE + SW 
-    North_South_route_L2[0] = North_South_route_Without_turn_L2;
-    North_South_route_L2[1] = North_South_route_With_NE_turn_L2;
-    North_South_route_L2[2] = North_South_route_With_SW_turn_L2;
-    North_South_route_L2[3] = North_South_route_With_NE_and_SW_turn_L2;
-    Find_Maximum_Index(North_South_route_L2, 4, &Max_indexes_L2[0]);
-    int West_South_route_East_North_route_With_WN_and_NE_turn_L2 = NE_L2 + SW_L2 + WS_L2 + WN_L2; // West South route and South West route (With WN and NE turn) = NE + SW + WS + WN 
-    int West_South_route_East_North_route_With_WN_and_WE_turn_L2 = WS_L2 + SW_L2 + WN_L2 + WE_L2; // West South route and South West route (With WN and WE turn) = WS + SW + WN + WE 
-    int West_South_route_East_North_route_With_WN_turn_L2 = SW_L2 + WS_L2 + WN_L2 + Right_NS_L2; // West South route and South West route (With WN turn) = SW + WS + WN + PD(Right North South)
-    int West_South_route_East_North_route_With_WE_turn_L2 = SW_L2 + WS_L2 + WE_L2 + Top_EW_L2; // West South route and South West route (With WE turn) = SW + WS + WE + PD(Top East West) 
-    int West_South_route_East_North_route_Without_turn_L2 = SW_L2 + WS_L2 + Top_EW_L2 + Right_NS_L2; // West South route and South West route (Without turn) = SW + WS + PD(Top East West + Right North South) 
-    West_South_route_East_North_route_L2[0] = West_South_route_East_North_route_With_WN_and_NE_turn_L2;
-    West_South_route_East_North_route_L2[1] = West_South_route_East_North_route_With_WN_and_WE_turn_L2;
-    West_South_route_East_North_route_L2[2] = West_South_route_East_North_route_With_WN_turn_L2;
-    West_South_route_East_North_route_L2[3] = West_South_route_East_North_route_With_WE_turn_L2;
-    West_South_route_East_North_route_L2[4] = West_South_route_East_North_route_Without_turn_L2;
-    Find_Maximum_Index(West_South_route_East_North_route_L2, 5, &Max_indexes_L2[1]);
-    int North_West_route_and_West_north_route_With_NS_and_NE_turn_L2 = NW_L2 + WN_L2 + NS_L2 + NE_L2; // North_West route and West north route (With NS, NE) = NW + WN + NS + NE 
-    int North_West_route_and_West_north_route_With_NE_and_ES_turn_L2 = NW_L2 + WN_L2 + NE_L2 + ES_L2; // North_West route and West north route (With NE, ES) = NW + WN + NE + ES 
-    int North_West_route_and_West_north_route_With_NE_turn_L2 = NW_L2 + WN_L2 + NE_L2 + Bottom_EW_L2; // North_West route and West north route (With NE) = NW + WN + NE + PD (Bottom East West) 
-    int North_West_route_and_West_north_route_With_NS_turn_L2 = NW_L2 + WN_L2 + NS_L2 + Right_NS_L2; // North_West route and West north route (With NS) = NW + WN + NS + PD (Right North South) 
-    int North_West_route_and_West_north_route_Without_turn_L2 = NW_L2 + WN_L2 + Bottom_EW_L2 + Right_NS_L2; // North_West route and West north route (Without) = NW + WN + PD (Bottom East West + Right North South) 
-    North_West_route_and_West_north_route_L2[0] = North_West_route_and_West_north_route_With_NS_and_NE_turn_L2;
-    North_West_route_and_West_north_route_L2[1] = North_West_route_and_West_north_route_With_NE_and_ES_turn_L2;
-    North_West_route_and_West_north_route_L2[2] = North_West_route_and_West_north_route_With_NE_turn_L2;
-    North_West_route_and_West_north_route_L2[3] = North_West_route_and_West_north_route_With_NS_turn_L2;
-    North_West_route_and_West_north_route_L2[4] = North_West_route_and_West_north_route_Without_turn_L2;
-    Find_Maximum_Index(North_West_route_and_West_north_route_L2, 5, &Max_indexes_L2[2]);
-    int East_West_route_With_WN_and_ES_turn_L2 = EW_L2 + WE_L2 + WN_L2 + ES_L2; // East West route and West to South (With WN and ES turn) = WN + WE + EW + ES 
-    int East_West_route_With_WN_turn_L2 = EW_L2 + WE_L2 + WN_L2 + Bottom_EW_L2; // East West route and West to South (With WN) = WN + WE + EW + PD(Bottom East West) 
-    int East_West_route_With_ES_turn_L2 = EW_L2 + WE_L2 + ES_L2 + Top_EW_L2; // East West route and West to South (With ES) = WE + EW + ES + PD(Top East West) 
-    int East_West_route_Without_turn_L2 = EW_L2 + WE_L2 + Top_EW_L2 + Bottom_EW_L2; // East West route and West to South (Without turns) = WE + EW + PD(Upper East West + Bottom East West)
-    East_West_route_L2[0] = East_West_route_With_WN_and_ES_turn_L2;
-    East_West_route_L2[1] = East_West_route_With_WN_turn_L2;
-    East_West_route_L2[2] = East_West_route_With_ES_turn_L2;
-    East_West_route_L2[3] = East_West_route_Without_turn_L2;
-    Find_Maximum_Index(East_West_route_L2, 4, &Max_indexes_L2[3]);
-    int East_to_North_route_With_SW_and_ES_turn_L2 = NE_L2 + ES_L2 + EN_L2 + SW_L2; // East to North route (With SW and ES turn) = NE + ES + EN + SW 
-    int East_to_North_route_With_EW_and_ES_turn_L2 = NE_L2 + ES_L2 + EN_L2 + EW_L2; // East to North route (With EW and ES turn) = NE + ES + EN + EW 
-    int East_to_North_route_With_ES_turn_L2 = NE_L2 + ES_L2 + EN_L2 + Bottom_EW_L2; // East to North route (With ES turn) = NE + ES + EN + PD(Bottom East West)
-    int East_to_North_route_With_EW_turn_L2 = NE_L2 + EW_L2 + EN_L2 + Bottom_EW_L2; // East to North route (With EW turn) = NE + EW + EN + PD(Bottom East West)
-    int East_to_North_route_Without_turn_L2 = NE_L2 + Top_EW_L2 + EN_L2 + Bottom_EW_L2; // East to North route (Without turn) = NE + ES + PD(Left North South + Bottom East West) 
-    East_to_North_route_L2[0] = East_to_North_route_With_SW_and_ES_turn_L2;
-    East_to_North_route_L2[1] = East_to_North_route_With_EW_and_ES_turn_L2;
-    East_to_North_route_L2[2] = East_to_North_route_With_ES_turn_L2;
-    East_to_North_route_L2[3] = East_to_North_route_With_EW_turn_L2;
-    East_to_North_route_L2[4] = East_to_North_route_Without_turn_L2;
-    Find_Maximum_Index(East_to_North_route_L2, 5, &Max_indexes_L2[4]);
-    int South_to_East_route_With_WN_and_SW_turn_L2 = ES_L2 + SE_L2 + SW_L2 + WN_L2; // South to East route (With WN and SW) = ES + SE + SW + WN 
-    int South_to_East_route_With_SN_and_SW_turn_L2 = ES_L2 + SE_L2 + SW_L2 + SN_L2; // South to East route (With SN and SW) = ES + SE + SW + SN 
-    int South_to_East_route_With_SW_turn_L2 = ES_L2 + SE_L2 + SW_L2 + Bottom_EW_L2; // South to East route (With SW turn) = ES + SE + SW + PD(Upper East West) 
-    int South_to_East_route_With_SN_turn_L2 = ES_L2 + SE_L2 + SN_L2 + Bottom_EW_L2; // South to East route (With SN turn) = ES + SE + SN + PD(Left North South) 
-    int South_to_East_route_Without_turn_L2 = ES_L2 + SE_L2 + Top_EW_L2 + Bottom_EW_L2; // South to East route (Without turn) = ES + SE + PD(Upper East West + Left North South) 
-    South_to_East_route_L2[0] = South_to_East_route_With_WN_and_SW_turn_L2;
-    South_to_East_route_L2[1] = South_to_East_route_With_SN_and_SW_turn_L2;
-    South_to_East_route_L2[2] = South_to_East_route_With_SW_turn_L2;
-    South_to_East_route_L2[3] = South_to_East_route_With_SN_turn_L2;
-    South_to_East_route_L2[4] = South_to_East_route_Without_turn_L2;
-    Find_Maximum_Index(South_to_East_route_L2, 5, &Max_indexes_L2[5]);
+    light->North_South[0] = light->priority.NS + light->priority.SN + light->priority.Left_NS + light->priority.Right_NS;
+    light->North_South[1] = light->priority.NS + light->priority.SN + light->priority.NE + light->priority.Left_NS;
+    light->North_South[2] = light->priority.NS + light->priority.SN + light->priority.SW + light->priority.Right_NS;
+    light->North_South[3] = light->priority.NS + light->priority.SN + light->priority.NE + light->priority.SW;
+    Find_Maximum_Index(light->North_South, 4, &light->best.North_South);
+
+    light->West_South[0] = light->priority.NE + light->priority.SW + light->priority.WS + light->priority.WN;
+    light->West_South[1] = light->priority.WS + light->priority.SW + light->priority.WN + light->priority.WE;
+    light->West_South[2] = light->priority.SW + light->priority.WS + light->priority.WN + light->priority.Right_NS;
+    light->West_South[3] = light->priority.SW + light->priority.WS + light->priority.WE + light->priority.Top_EW;
+    light->West_South[4] = light->priority.SW + light->priority.WS + light->priority.Top_EW + light->priority.Right_NS;
+    Find_Maximum_Index(light->West_South, 5, &light->best.West_South);
+
+    light->North_West[0] = light->priority.NW + light->priority.WN + light->priority.NS + light->priority.NE;
+    light->North_West[1] = light->priority.NW + light->priority.WN + light->priority.NE + light->priority.ES;
+    light->North_West[2] = light->priority.NW + light->priority.WN + light->priority.NE + light->priority.Bottom_EW;
+    light->North_West[3] = light->priority.NW + light->priority.WN + light->priority.NS + light->priority.Right_NS;
+    light->North_West[4] = light->priority.NW + light->priority.WN + light->priority.Bottom_EW + light->priority.Right_NS;
+    Find_Maximum_Index(light->North_West, 5, &light->best.North_West);
+
+    light->East_West[0] = light->priority.EW + light->priority.WE + light->priority.WN + light->priority.ES;
+    light->East_West[1] = light->priority.EW + light->priority.WE + light->priority.WN + light->priority.Bottom_EW;
+    light->East_West[2] = light->priority.EW + light->priority.WE + light->priority.ES + light->priority.Top_EW;
+    light->East_West[3] = light->priority.EW + light->priority.WE + light->priority.Top_EW + light->priority.Bottom_EW;
+    Find_Maximum_Index(light->East_West, 4, &light->best.East_West);
+
+    light->East_North[0] = light->priority.NE + light->priority.ES + light->priority.EN + light->priority.SW;
+    light->East_North[1] = light->priority.NE + light->priority.ES + light->priority.EN + light->priority.EW;
+    light->East_North[2] = light->priority.NE + light->priority.ES + light->priority.EN + light->priority.Bottom_EW;
+    light->East_North[3] = light->priority.NE + light->priority.EW + light->priority.EN + light->priority.Bottom_EW;
+    light->East_North[4] = light->priority.NE + light->priority.Top_EW + light->priority.EN + light->priority.Bottom_EW;
+    Find_Maximum_Index(light->East_North, 5, &light->best.East_North);
+
+    light->South_East[0] = light->priority.ES + light->priority.SE + light->priority.SW + light->priority.WN;
+    light->South_East[1] = light->priority.ES + light->priority.SE + light->priority.SW + light->priority.SN;
+    light->South_East[2] = light->priority.ES + light->priority.SE + light->priority.SW + light->priority.Bottom_EW;
+    light->South_East[3] = light->priority.ES + light->priority.SE + light->priority.SN + light->priority.Bottom_EW;
+    light->South_East[4] = light->priority.ES + light->priority.SE + light->priority.Top_EW + light->priority.Bottom_EW;
+    Find_Maximum_Index(light->South_East, 5, &light->best.South_East);
+
+}
+
+void TrafficLight_Logics(void *inputs)
+{
+    (void)inputs; // Populate L1.priority and L2.priority before calling.
+    Calculate_Route_Scores(&L1);
+    Calculate_Route_Scores(&L2);
+
     int TrafficRoutes[10];
     // L1 North South route + L2 North South route
-    TrafficRoutes[0] = North_South_route_L1[Max_indexes_L1[0]] + North_South_route_L2[Max_indexes_L2[0]];
+    TrafficRoutes[0] = L1.North_South[L1.best.North_South] + L2.North_South[L2.best.North_South];
     // L1 East West route + L2 East West route
-    TrafficRoutes[1] = East_West_route_L1[Max_indexes_L1[3]] + East_West_route_L2[Max_indexes_L2[3]];
+    TrafficRoutes[1] = L1.East_West[L1.best.East_West] + L2.East_West[L2.best.East_West];
     // L1 North West route + L2 South East route
-    TrafficRoutes[2] = North_West_route_and_West_north_route_L1[Max_indexes_L1[2]] + South_to_East_route_L2[Max_indexes_L2[5]];
+    TrafficRoutes[2] = L1.North_West[L1.best.North_West] + L2.South_East[L2.best.South_East];
     // L1 West South route + L2 East North route
-    TrafficRoutes[3] = West_South_route_East_North_route_L1[Max_indexes_L1[1]] + East_to_North_route_L2[Max_indexes_L2[4]];
+    TrafficRoutes[3] = L1.West_South[L1.best.West_South] + L2.East_North[L2.best.East_North];
     // L1 East North route + L2 North West route
-    TrafficRoutes[4] = East_to_North_route_L1[Max_indexes_L1[4]] + North_West_route_and_West_north_route_L2[Max_indexes_L2[2]];
+    TrafficRoutes[4] = L1.East_North[L1.best.East_North] + L2.North_West[L2.best.North_West];
     // L1 South to East route + L2 East West route
-    TrafficRoutes[5] = South_to_East_route_L1[Max_indexes_L1[5]] + East_West_route_L2[Max_indexes_L2[3]];
-    // L1 South West route + L2 West South route
-    TrafficRoutes[6] = South_to_East_route_L1[Max_indexes_L1[5]] + West_South_route_East_North_route_L2[Max_indexes_L2[1]];
+    TrafficRoutes[5] = L1.South_East[L1.best.South_East] + L2.East_West[L2.best.East_West];
+    // L1 South East route + L2 West South route (legacy state label uses SW)
+    TrafficRoutes[6] = L1.South_East[L1.best.South_East] + L2.West_South[L2.best.West_South];
     // L1 West East route + L2 North West route
-    TrafficRoutes[7] = East_West_route_L1[Max_indexes_L1[3]] + North_West_route_and_West_north_route_L2[Max_indexes_L2[2]];
+    TrafficRoutes[7] = L1.East_West[L1.best.East_West] + L2.North_West[L2.best.North_West];
     // L1 West East route + L2 West South route
-    TrafficRoutes[8] = East_West_route_L1[Max_indexes_L1[3]] + West_South_route_East_North_route_L2[Max_indexes_L2[1]];
+    TrafficRoutes[8] = L1.East_West[L1.best.East_West] + L2.West_South[L2.best.West_South];
     // L1 East North route + L2 East West route
-    TrafficRoutes[9] = East_to_North_route_L1[Max_indexes_L1[4]] + East_West_route_L2[Max_indexes_L2[3]];
+    TrafficRoutes[9] = L1.East_North[L1.best.East_North] + L2.East_West[L2.best.East_West];
     Find_Maximum_Index(TrafficRoutes, 10, &Decided_route);
     RequestedState = (enum states)Decided_route;
 
-    // Save L1's selected variants.
-    North_South_route_L1_max_index = Max_indexes_L1[0];
-    West_South_route_East_North_route_L1_max_index = Max_indexes_L1[1];
-    North_West_route_and_West_north_route_L1_max_index = Max_indexes_L1[2];
-    East_West_route_L1_max_index = Max_indexes_L1[3];
-    East_to_North_route_L1_max_index = Max_indexes_L1[4];
-    South_to_East_route_L1_max_index = Max_indexes_L1[5];
-
-    // Save L2's selected variants.
-    North_South_route_L2_max_index = Max_indexes_L2[0];
-    West_South_route_East_North_route_L2_max_index = Max_indexes_L2[1];
-    North_West_route_and_West_north_route_L2_max_index = Max_indexes_L2[2];
-    East_West_route_L2_max_index = Max_indexes_L2[3];
-    East_to_North_route_L2_max_index = Max_indexes_L2[4];
-    South_to_East_route_L2_max_index = Max_indexes_L2[5];
 }
 
 void Find_Maximum_Index(const int *array, int size, int *max_index) {
@@ -962,4 +558,51 @@ void Find_Maximum_Index(const int *array, int size, int *max_index) {
             *max_index = i;
         }
     }
+}
+
+# define INT_MAX 2147483647
+
+#define MAX_PRIORITY (INT_MAX / 8)
+
+static void Increase_Waiting_Priority(int *priority, int output)
+{
+    // No waiting request, or movement was allowed this cycle.
+    if (*priority <= 0 || output != 0) {
+        return;
+    }
+
+    // Double without overflowing.
+    if (*priority > MAX_PRIORITY / 2) {
+        *priority = MAX_PRIORITY;
+    } else {
+        *priority *= 2;
+    }
+}
+
+void Update_Waiting_Priorities(Intersection *light)
+{
+    if (light == NULL) {
+        return;
+    }
+
+    Increase_Waiting_Priority(&light->priority.NE, light->output.NE);
+    Increase_Waiting_Priority(&light->priority.NS, light->output.NS);
+    Increase_Waiting_Priority(&light->priority.NW, light->output.NW);
+
+    Increase_Waiting_Priority(&light->priority.EN, light->output.EN);
+    Increase_Waiting_Priority(&light->priority.ES, light->output.ES);
+    Increase_Waiting_Priority(&light->priority.EW, light->output.EW);
+
+    Increase_Waiting_Priority(&light->priority.SN, light->output.SN);
+    Increase_Waiting_Priority(&light->priority.SE, light->output.SE);
+    Increase_Waiting_Priority(&light->priority.SW, light->output.SW);
+
+    Increase_Waiting_Priority(&light->priority.WN, light->output.WN);
+    Increase_Waiting_Priority(&light->priority.WE, light->output.WE);
+    Increase_Waiting_Priority(&light->priority.WS, light->output.WS);
+
+    Increase_Waiting_Priority(&light->priority.Left_NS, light->output.Left_NS);
+    Increase_Waiting_Priority(&light->priority.Right_NS, light->output.Right_NS);
+    Increase_Waiting_Priority(&light->priority.Top_EW, light->output.Top_EW);
+    Increase_Waiting_Priority(&light->priority.Bottom_EW, light->output.Bottom_EW);
 }
