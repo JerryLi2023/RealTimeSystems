@@ -21,11 +21,29 @@ int SW_L1 = 0;
 int WN_L1 = 0;
 int WE_L1 = 0;
 int WS_L1 = 0;
+// L1 Traffic Lights Outputs
+int NE_L1_Output = 0;
+int NS_L1_Output = 0;
+int NW_L1_Output = 0;
+int EN_L1_Output = 0;
+int ES_L1_Output = 0;
+int EW_L1_Output = 0;
+int SN_L1_Output = 0;
+int SE_L1_Output = 0;
+int SW_L1_Output = 0;
+int WN_L1_Output = 0;
+int WE_L1_Output = 0;
+int WS_L1_Output = 0;
 // L1 Pedestrian Lights
 int Left_NS_L1 = 0;
 int Right_NS_L1 = 0;
 int Top_EW_L1 = 0;
 int Bottom_EW_L1 = 0;
+// L1 Pedestrian Lights Outputs
+int Left_NS_L1_Output = 0;
+int Right_NS_L1_Output = 0;
+int Top_EW_L1_Output = 0;
+int Bottom_EW_L1_Output = 0;
 // L2 Traffic Light Logics
 int North_South_route_L2[4];
 int West_South_route_East_North_route_L2[5];
@@ -46,14 +64,33 @@ int SW_L2 = 0;
 int WN_L2 = 0;
 int WE_L2 = 0;
 int WS_L2 = 0;
+// L2 Traffic Lights Outputs
+int NE_L2_Output = 0;
+int NS_L2_Output = 0;
+int NW_L2_Output = 0;
+int EN_L2_Output = 0;
+int ES_L2_Output = 0;
+int EW_L2_Output = 0;
+int SN_L2_Output = 0;
+int SE_L2_Output = 0;
+int SW_L2_Output = 0;
+int WN_L2_Output = 0;
+int WE_L2_Output = 0;
+int WS_L2_Output = 0;
 // L2 Pedestrian Lights
 int Left_NS_L2 = 0;
 int Right_NS_L2 = 0;
 int Top_EW_L2 = 0;
 int Bottom_EW_L2 = 0;
+// L2 Pedestrian Lights Outputs
+int Left_NS_L2_Output = 0;
+int Right_NS_L2_Output = 0;
+int Top_EW_L2_Output = 0;
+int Bottom_EW_L2_Output = 0;
 // State Machine Global Variables
 enum states {L1_NS_and_L2_NS, L1_EW_and_L2_EW, L1_NW_and_L2_SE, L1_WS_and_L2_EN, L1_EN_and_L2_NW, L1_SE_and_L2_EW, L1_SW_and_L2_WS, L1_WE_and_L2_NW, L1_WE_and_L2_WS, L1_EN_and_L2_EW};
-enum states CurState;
+enum states CurState = L1_NS_and_L2_NS;
+enum states RequestedState = L1_NS_and_L2_NS;
 int Decided_route = 0;
 int North_South_route_L1_max_index = 0;
 int West_South_route_East_North_route_L1_max_index = 0;
@@ -71,11 +108,675 @@ int South_to_East_route_L2_max_index = 0;
 // Function Prototypes
 void Find_Maximum_Index(const int *array, int size, int *max_index);
 void TrafficLight_Logics(void *inputs);
+void Find_Maximum_Index(const int *array, int size, int *max_index);
+void TrafficLight_Logics(void *inputs);
+void TrafficLight_State_Machine(void *state_ptr, void *inputs);
+void Reset_Traffic_Light_Outputs(int traffic_lights);
+void North_South_route_Case_Statement(int route_index, int traffic_lights);
+void West_South_route_East_North_route_Case_Statement(int route_index, int traffic_lights);
+void North_West_route_and_West_north_route_Case_Statement(int route_index, int traffic_lights);
+void East_West_route_Case_Statement(int route_index, int traffic_lights);
+void East_to_North_route_Case_Statement(int route_index, int traffic_lights);
+void South_to_East_route_Case_Statement(int route_index, int traffic_lights);
 
-void TrafficLight_State_Machine(void *state_ptr, void *inputs) {
-    enum states *CurrentState = (enum states*) state_ptr;
+void Reset_Traffic_Light_Outputs(int traffic_lights)
+{
+    if (traffic_lights == 1) {
+        NE_L1_Output = 0;
+        NS_L1_Output = 0;
+        NW_L1_Output = 0;
+        EN_L1_Output = 0;
+        ES_L1_Output = 0;
+        EW_L1_Output = 0;
+        SN_L1_Output = 0;
+        SE_L1_Output = 0;
+        SW_L1_Output = 0;
+        WN_L1_Output = 0;
+        WE_L1_Output = 0;
+        WS_L1_Output = 0;
+        Left_NS_L1_Output = 0;
+        Right_NS_L1_Output = 0;
+        Top_EW_L1_Output = 0;
+        Bottom_EW_L1_Output = 0;
+    }
+    else if (traffic_lights == 2) {
+        NE_L2_Output = 0;
+        NS_L2_Output = 0;
+        NW_L2_Output = 0;
+        EN_L2_Output = 0;
+        ES_L2_Output = 0;
+        EW_L2_Output = 0;
+        SN_L2_Output = 0;
+        SE_L2_Output = 0;
+        SW_L2_Output = 0;
+        WN_L2_Output = 0;
+        WE_L2_Output = 0;
+        WS_L2_Output = 0;
+        Left_NS_L2_Output = 0;
+        Right_NS_L2_Output = 0;
+        Top_EW_L2_Output = 0;
+        Bottom_EW_L2_Output = 0;
+    }
+}
+
+void TrafficLight_State_Machine(void *state_ptr, void *inputs)
+{
+    (void)inputs;
+    Reset_Traffic_Light_Outputs(1);
+    Reset_Traffic_Light_Outputs(2);
+
+    if (state_ptr == NULL) {
+        return;
+    }
+
+    const enum states *CurrentState = (const enum states *)state_ptr;
     switch (*CurrentState) {
-		case 0:
+        case L1_NS_and_L2_NS:
+            North_South_route_Case_Statement(
+                North_South_route_L1_max_index, 1);
+            North_South_route_Case_Statement(
+                North_South_route_L2_max_index, 2);
+            break;
+
+        case L1_EW_and_L2_EW:
+            East_West_route_Case_Statement(
+                East_West_route_L1_max_index, 1);
+            East_West_route_Case_Statement(
+                East_West_route_L2_max_index, 2);
+            break;
+
+        case L1_NW_and_L2_SE:
+            North_West_route_and_West_north_route_Case_Statement(
+                North_West_route_and_West_north_route_L1_max_index, 1);
+            South_to_East_route_Case_Statement(
+                South_to_East_route_L2_max_index, 2);
+            break;
+
+        case L1_WS_and_L2_EN:
+            West_South_route_East_North_route_Case_Statement(
+                West_South_route_East_North_route_L1_max_index, 1);
+            East_to_North_route_Case_Statement(
+                East_to_North_route_L2_max_index, 2);
+            break;
+
+        case L1_EN_and_L2_NW:
+            East_to_North_route_Case_Statement(
+                East_to_North_route_L1_max_index, 1);
+            North_West_route_and_West_north_route_Case_Statement(
+                North_West_route_and_West_north_route_L2_max_index, 2);
+            break;
+
+        case L1_SE_and_L2_EW:
+            South_to_East_route_Case_Statement(
+                South_to_East_route_L1_max_index, 1);
+            East_West_route_Case_Statement(
+                East_West_route_L2_max_index, 2);
+            break;
+
+        case L1_SW_and_L2_WS:
+            South_to_East_route_Case_Statement(
+                South_to_East_route_L1_max_index, 1);
+            West_South_route_East_North_route_Case_Statement(
+                West_South_route_East_North_route_L2_max_index, 2);
+            break;
+
+        case L1_WE_and_L2_NW:
+            East_West_route_Case_Statement(
+                East_West_route_L1_max_index, 1);
+            North_West_route_and_West_north_route_Case_Statement(
+                North_West_route_and_West_north_route_L2_max_index, 2);
+            break;
+
+        case L1_WE_and_L2_WS:
+            East_West_route_Case_Statement(
+                East_West_route_L1_max_index, 1);
+            West_South_route_East_North_route_Case_Statement(
+                West_South_route_East_North_route_L2_max_index, 2);
+            break;
+
+        case L1_EN_and_L2_EW:
+            East_to_North_route_Case_Statement(
+                East_to_North_route_L1_max_index, 1);
+            East_West_route_Case_Statement(
+                East_West_route_L2_max_index, 2);
+            break;
+
+        default:
+            // Unknown state: all permission outputs remain zero.
+            break;
+    }
+}
+
+void North_South_route_Case_Statement(int route_index, int traffic_lights)
+{
+    if (traffic_lights != 1 && traffic_lights != 2) {
+        return;
+    }
+
+    Reset_Traffic_Light_Outputs(traffic_lights);
+    switch (route_index) {
+        case 0:
+            // Enable: NS, SN, Left_NS, Right_NS.
+            if (traffic_lights == 1) {
+                NS_L1_Output = 1;
+                SN_L1_Output = 1;
+                Left_NS_L1_Output = 1;
+                Right_NS_L1_Output = 1;
+            }
+            else {
+                NS_L2_Output = 1;
+                SN_L2_Output = 1;
+                Left_NS_L2_Output = 1;
+                Right_NS_L2_Output = 1;
+            }
+            break;
+
+        case 1:
+            // Enable: NS, SN, NE, Left_NS.
+            if (traffic_lights == 1) {
+                NS_L1_Output = 1;
+                SN_L1_Output = 1;
+                NE_L1_Output = 1;
+                Left_NS_L1_Output = 1;
+            }
+            else {
+                NS_L2_Output = 1;
+                SN_L2_Output = 1;
+                NE_L2_Output = 1;
+                Left_NS_L2_Output = 1;
+            }
+            break;
+
+        case 2:
+            // Enable: NS, SN, SW, Right_NS.
+            if (traffic_lights == 1) {
+                NS_L1_Output = 1;
+                SN_L1_Output = 1;
+                SW_L1_Output = 1;
+                Right_NS_L1_Output = 1;
+            }
+            else {
+                NS_L2_Output = 1;
+                SN_L2_Output = 1;
+                SW_L2_Output = 1;
+                Right_NS_L2_Output = 1;
+            }
+            break;
+
+        case 3:
+            // Enable: NS, SN, NE, SW.
+            if (traffic_lights == 1) {
+                NS_L1_Output = 1;
+                SN_L1_Output = 1;
+                NE_L1_Output = 1;
+                SW_L1_Output = 1;
+            }
+            else {
+                NS_L2_Output = 1;
+                SN_L2_Output = 1;
+                NE_L2_Output = 1;
+                SW_L2_Output = 1;
+            }
+            break;
+
+        default:
+            // Unknown variant: this intersection remains stopped.
+            break;
+    }
+}
+
+void West_South_route_East_North_route_Case_Statement(int route_index, int traffic_lights)
+{
+    if (traffic_lights != 1 && traffic_lights != 2) {
+        return;
+    }
+
+    Reset_Traffic_Light_Outputs(traffic_lights);
+    switch (route_index) {
+        case 0:
+            // Enable: NE, SW, WS, WN.
+            if (traffic_lights == 1) {
+                NE_L1_Output = 1;
+                SW_L1_Output = 1;
+                WS_L1_Output = 1;
+                WN_L1_Output = 1;
+            }
+            else {
+                NE_L2_Output = 1;
+                SW_L2_Output = 1;
+                WS_L2_Output = 1;
+                WN_L2_Output = 1;
+            }
+            break;
+
+        case 1:
+            // Enable: WS, SW, WN, WE.
+            if (traffic_lights == 1) {
+                WS_L1_Output = 1;
+                SW_L1_Output = 1;
+                WN_L1_Output = 1;
+                WE_L1_Output = 1;
+            }
+            else {
+                WS_L2_Output = 1;
+                SW_L2_Output = 1;
+                WN_L2_Output = 1;
+                WE_L2_Output = 1;
+            }
+            break;
+
+        case 2:
+            // Enable: SW, WS, WN, Right_NS.
+            if (traffic_lights == 1) {
+                SW_L1_Output = 1;
+                WS_L1_Output = 1;
+                WN_L1_Output = 1;
+                Right_NS_L1_Output = 1;
+            }
+            else {
+                SW_L2_Output = 1;
+                WS_L2_Output = 1;
+                WN_L2_Output = 1;
+                Right_NS_L2_Output = 1;
+            }
+            break;
+
+        case 3:
+            // Enable: SW, WS, WE, Top_EW.
+            if (traffic_lights == 1) {
+                SW_L1_Output = 1;
+                WS_L1_Output = 1;
+                WE_L1_Output = 1;
+                Top_EW_L1_Output = 1;
+            }
+            else {
+                SW_L2_Output = 1;
+                WS_L2_Output = 1;
+                WE_L2_Output = 1;
+                Top_EW_L2_Output = 1;
+            }
+            break;
+
+        case 4:
+            // Enable: SW, WS, Top_EW, Right_NS.
+            if (traffic_lights == 1) {
+                SW_L1_Output = 1;
+                WS_L1_Output = 1;
+                Top_EW_L1_Output = 1;
+                Right_NS_L1_Output = 1;
+            }
+            else {
+                SW_L2_Output = 1;
+                WS_L2_Output = 1;
+                Top_EW_L2_Output = 1;
+                Right_NS_L2_Output = 1;
+            }
+            break;
+
+        default:
+            // Unknown variant: this intersection remains stopped.
+            break;
+    }
+}
+
+void North_West_route_and_West_north_route_Case_Statement(int route_index, int traffic_lights)
+{
+    if (traffic_lights != 1 && traffic_lights != 2) {
+        return;
+    }
+
+    Reset_Traffic_Light_Outputs(traffic_lights);
+    switch (route_index) {
+        case 0:
+            // Enable: NW, WN, NS, NE.
+            if (traffic_lights == 1) {
+                NW_L1_Output = 1;
+                WN_L1_Output = 1;
+                NS_L1_Output = 1;
+                NE_L1_Output = 1;
+            }
+            else {
+                NW_L2_Output = 1;
+                WN_L2_Output = 1;
+                NS_L2_Output = 1;
+                NE_L2_Output = 1;
+            }
+            break;
+
+        case 1:
+            // Enable: NW, WN, NE, ES.
+            if (traffic_lights == 1) {
+                NW_L1_Output = 1;
+                WN_L1_Output = 1;
+                NE_L1_Output = 1;
+                ES_L1_Output = 1;
+            }
+            else {
+                NW_L2_Output = 1;
+                WN_L2_Output = 1;
+                NE_L2_Output = 1;
+                ES_L2_Output = 1;
+            }
+            break;
+
+        case 2:
+            // Enable: NW, WN, NE, Bottom_EW.
+            if (traffic_lights == 1) {
+                NW_L1_Output = 1;
+                WN_L1_Output = 1;
+                NE_L1_Output = 1;
+                Bottom_EW_L1_Output = 1;
+            }
+            else {
+                NW_L2_Output = 1;
+                WN_L2_Output = 1;
+                NE_L2_Output = 1;
+                Bottom_EW_L2_Output = 1;
+            }
+            break;
+
+        case 3:
+            // Enable: NW, WN, NS, Right_NS.
+            if (traffic_lights == 1) {
+                NW_L1_Output = 1;
+                WN_L1_Output = 1;
+                NS_L1_Output = 1;
+                Right_NS_L1_Output = 1;
+            }
+            else {
+                NW_L2_Output = 1;
+                WN_L2_Output = 1;
+                NS_L2_Output = 1;
+                Right_NS_L2_Output = 1;
+            }
+            break;
+
+        case 4:
+            // Enable: NW, WN, Bottom_EW, Right_NS.
+            if (traffic_lights == 1) {
+                NW_L1_Output = 1;
+                WN_L1_Output = 1;
+                Bottom_EW_L1_Output = 1;
+                Right_NS_L1_Output = 1;
+            }
+            else {
+                NW_L2_Output = 1;
+                WN_L2_Output = 1;
+                Bottom_EW_L2_Output = 1;
+                Right_NS_L2_Output = 1;
+            }
+            break;
+
+        default:
+            // Unknown variant: this intersection remains stopped.
+            break;
+    }
+}
+
+void East_West_route_Case_Statement(int route_index, int traffic_lights)
+{
+    if (traffic_lights != 1 && traffic_lights != 2) {
+        return;
+    }
+
+    Reset_Traffic_Light_Outputs(traffic_lights);
+    switch (route_index) {
+        case 0:
+            // Enable: EW, WE, WN, ES.
+            if (traffic_lights == 1) {
+                EW_L1_Output = 1;
+                WE_L1_Output = 1;
+                WN_L1_Output = 1;
+                ES_L1_Output = 1;
+            }
+            else {
+                EW_L2_Output = 1;
+                WE_L2_Output = 1;
+                WN_L2_Output = 1;
+                ES_L2_Output = 1;
+            }
+            break;
+
+        case 1:
+            // Enable: EW, WE, WN, Bottom_EW.
+            if (traffic_lights == 1) {
+                EW_L1_Output = 1;
+                WE_L1_Output = 1;
+                WN_L1_Output = 1;
+                Bottom_EW_L1_Output = 1;
+            }
+            else {
+                EW_L2_Output = 1;
+                WE_L2_Output = 1;
+                WN_L2_Output = 1;
+                Bottom_EW_L2_Output = 1;
+            }
+            break;
+
+        case 2:
+            // Enable: EW, WE, ES, Top_EW.
+            if (traffic_lights == 1) {
+                EW_L1_Output = 1;
+                WE_L1_Output = 1;
+                ES_L1_Output = 1;
+                Top_EW_L1_Output = 1;
+            }
+            else {
+                EW_L2_Output = 1;
+                WE_L2_Output = 1;
+                ES_L2_Output = 1;
+                Top_EW_L2_Output = 1;
+            }
+            break;
+
+        case 3:
+            // Enable: EW, WE, Top_EW, Bottom_EW.
+            if (traffic_lights == 1) {
+                EW_L1_Output = 1;
+                WE_L1_Output = 1;
+                Top_EW_L1_Output = 1;
+                Bottom_EW_L1_Output = 1;
+            }
+            else {
+                EW_L2_Output = 1;
+                WE_L2_Output = 1;
+                Top_EW_L2_Output = 1;
+                Bottom_EW_L2_Output = 1;
+            }
+            break;
+
+        default:
+            // Unknown variant: this intersection remains stopped.
+            break;
+    }
+}
+
+void East_to_North_route_Case_Statement(int route_index, int traffic_lights)
+{
+    if (traffic_lights != 1 && traffic_lights != 2) {
+        return;
+    }
+
+    Reset_Traffic_Light_Outputs(traffic_lights);
+    switch (route_index) {
+        case 0:
+            // Enable: NE, ES, EN, SW.
+            if (traffic_lights == 1) {
+                NE_L1_Output = 1;
+                ES_L1_Output = 1;
+                EN_L1_Output = 1;
+                SW_L1_Output = 1;
+            }
+            else {
+                NE_L2_Output = 1;
+                ES_L2_Output = 1;
+                EN_L2_Output = 1;
+                SW_L2_Output = 1;
+            }
+            break;
+
+        case 1:
+            // Enable: NE, ES, EN, EW.
+            if (traffic_lights == 1) {
+                NE_L1_Output = 1;
+                ES_L1_Output = 1;
+                EN_L1_Output = 1;
+                EW_L1_Output = 1;
+            }
+            else {
+                NE_L2_Output = 1;
+                ES_L2_Output = 1;
+                EN_L2_Output = 1;
+                EW_L2_Output = 1;
+            }
+            break;
+
+        case 2:
+            // Enable: NE, ES, EN, Bottom_EW.
+            if (traffic_lights == 1) {
+                NE_L1_Output = 1;
+                ES_L1_Output = 1;
+                EN_L1_Output = 1;
+                Bottom_EW_L1_Output = 1;
+            }
+            else {
+                NE_L2_Output = 1;
+                ES_L2_Output = 1;
+                EN_L2_Output = 1;
+                Bottom_EW_L2_Output = 1;
+            }
+            break;
+
+        case 3:
+            // Enable: NE, EW, EN, Bottom_EW.
+            if (traffic_lights == 1) {
+                NE_L1_Output = 1;
+                EW_L1_Output = 1;
+                EN_L1_Output = 1;
+                Bottom_EW_L1_Output = 1;
+            }
+            else {
+                NE_L2_Output = 1;
+                EW_L2_Output = 1;
+                EN_L2_Output = 1;
+                Bottom_EW_L2_Output = 1;
+            }
+            break;
+
+        case 4:
+            // Enable: NE, Top_EW, EN, Bottom_EW.
+            if (traffic_lights == 1) {
+                NE_L1_Output = 1;
+                Top_EW_L1_Output = 1;
+                EN_L1_Output = 1;
+                Bottom_EW_L1_Output = 1;
+            }
+            else {
+                NE_L2_Output = 1;
+                Top_EW_L2_Output = 1;
+                EN_L2_Output = 1;
+                Bottom_EW_L2_Output = 1;
+            }
+            break;
+
+        default:
+            // Unknown variant: this intersection remains stopped.
+            break;
+    }
+}
+
+void South_to_East_route_Case_Statement(int route_index, int traffic_lights)
+{
+    if (traffic_lights != 1 && traffic_lights != 2) {
+        return;
+    }
+
+    Reset_Traffic_Light_Outputs(traffic_lights);
+    switch (route_index) {
+        case 0:
+            // Enable: ES, SE, SW, WN.
+            if (traffic_lights == 1) {
+                ES_L1_Output = 1;
+                SE_L1_Output = 1;
+                SW_L1_Output = 1;
+                WN_L1_Output = 1;
+            }
+            else {
+                ES_L2_Output = 1;
+                SE_L2_Output = 1;
+                SW_L2_Output = 1;
+                WN_L2_Output = 1;
+            }
+            break;
+
+        case 1:
+            // Enable: ES, SE, SW, SN.
+            if (traffic_lights == 1) {
+                ES_L1_Output = 1;
+                SE_L1_Output = 1;
+                SW_L1_Output = 1;
+                SN_L1_Output = 1;
+            }
+            else {
+                ES_L2_Output = 1;
+                SE_L2_Output = 1;
+                SW_L2_Output = 1;
+                SN_L2_Output = 1;
+            }
+            break;
+
+        case 2:
+            // Enable: ES, SE, SW, Bottom_EW.
+            if (traffic_lights == 1) {
+                ES_L1_Output = 1;
+                SE_L1_Output = 1;
+                SW_L1_Output = 1;
+                Bottom_EW_L1_Output = 1;
+            }
+            else {
+                ES_L2_Output = 1;
+                SE_L2_Output = 1;
+                SW_L2_Output = 1;
+                Bottom_EW_L2_Output = 1;
+            }
+            break;
+
+        case 3:
+            // Enable: ES, SE, SN, Bottom_EW.
+            if (traffic_lights == 1) {
+                ES_L1_Output = 1;
+                SE_L1_Output = 1;
+                SN_L1_Output = 1;
+                Bottom_EW_L1_Output = 1;
+            }
+            else {
+                ES_L2_Output = 1;
+                SE_L2_Output = 1;
+                SN_L2_Output = 1;
+                Bottom_EW_L2_Output = 1;
+            }
+            break;
+
+        case 4:
+            // Enable: ES, SE, Top_EW, Bottom_EW.
+            if (traffic_lights == 1) {
+                ES_L1_Output = 1;
+                SE_L1_Output = 1;
+                Top_EW_L1_Output = 1;
+                Bottom_EW_L1_Output = 1;
+            }
+            else {
+                ES_L2_Output = 1;
+                SE_L2_Output = 1;
+                Top_EW_L2_Output = 1;
+                Bottom_EW_L2_Output = 1;
+            }
+            break;
+
+        default:
+            // Unknown variant: this intersection remains stopped.
+            break;
+    }
 }
 
 /* state_ptr points to an int that receives the chosen TrafficRoutes index. */
@@ -232,6 +933,23 @@ void TrafficLight_Logics(void *inputs) {
     // L1 East North route + L2 East West route
     TrafficRoutes[9] = East_to_North_route_L1[Max_indexes_L1[4]] + East_West_route_L2[Max_indexes_L2[3]];
     Find_Maximum_Index(TrafficRoutes, 10, &Decided_route);
+    RequestedState = (enum states)Decided_route;
+
+    // Save L1's selected variants.
+    North_South_route_L1_max_index = Max_indexes_L1[0];
+    West_South_route_East_North_route_L1_max_index = Max_indexes_L1[1];
+    North_West_route_and_West_north_route_L1_max_index = Max_indexes_L1[2];
+    East_West_route_L1_max_index = Max_indexes_L1[3];
+    East_to_North_route_L1_max_index = Max_indexes_L1[4];
+    South_to_East_route_L1_max_index = Max_indexes_L1[5];
+
+    // Save L2's selected variants.
+    North_South_route_L2_max_index = Max_indexes_L2[0];
+    West_South_route_East_North_route_L2_max_index = Max_indexes_L2[1];
+    North_West_route_and_West_north_route_L2_max_index = Max_indexes_L2[2];
+    East_West_route_L2_max_index = Max_indexes_L2[3];
+    East_to_North_route_L2_max_index = Max_indexes_L2[4];
+    South_to_East_route_L2_max_index = Max_indexes_L2[5];
 }
 
 void Find_Maximum_Index(const int *array, int size, int *max_index) {
