@@ -52,7 +52,7 @@ int Right_NS_L2 = 0;
 int Top_EW_L2 = 0;
 int Bottom_EW_L2 = 0;
 // State Machine Global Variables
-enum states {L1_NS_and_L2_NS, L1_EW_and_L2_EW, L1_NW_and_L2_SE, L1_WS_and_L2_EN, L1_EN_and_L2_NW, L1_SE_and_L2_EW, L1_SW_and_L2_WS, State7};
+enum states {L1_NS_and_L2_NS, L1_EW_and_L2_EW, L1_NW_and_L2_SE, L1_WS_and_L2_EN, L1_EN_and_L2_NW, L1_SE_and_L2_EW, L1_SW_and_L2_WS, L1_WE_and_L2_NW, L1_WE_and_L2_WS, L1_EN_and_L2_EW};
 enum states CurState;
 int Decided_route = 0;
 int North_South_route_L1_max_index = 0;
@@ -70,15 +70,16 @@ int South_to_East_route_L2_max_index = 0;
 
 // Function Prototypes
 void Find_Maximum_Index(const int *array, int size, int *max_index);
-void TrafficLight_Logics(void *state_ptr, void *inputs);
+void TrafficLight_Logics(void *inputs);
 
 void TrafficLight_State_Machine(void *state_ptr, void *inputs) {
-
+    enum states *CurrentState = (enum states*) state_ptr;
+    switch (*CurrentState) {
+		case 0:
 }
 
 /* state_ptr points to an int that receives the chosen TrafficRoutes index. */
-void TrafficLight_Logics(void *state_ptr, void *inputs) {
-    (void)inputs; /* The current calculations read the traffic counts from globals. */
+void TrafficLight_Logics(void *inputs) {
 
     // Calculation Variables
     int Max_indexes_L1[6];
@@ -209,9 +210,8 @@ void TrafficLight_Logics(void *state_ptr, void *inputs) {
     South_to_East_route_L2[3] = South_to_East_route_With_SN_turn_L2;
     South_to_East_route_L2[4] = South_to_East_route_Without_turn_L2;
     Find_Maximum_Index(South_to_East_route_L2, 5, &Max_indexes_L2[5]);
-    int TrafficRoutes[9];
-    int Max_trafficRouteIndex = 0;
-     // L1 North South route + L2 North South route
+    int TrafficRoutes[10];
+    // L1 North South route + L2 North South route
     TrafficRoutes[0] = North_South_route_L1[Max_indexes_L1[0]] + North_South_route_L2[Max_indexes_L2[0]];
     // L1 East West route + L2 East West route
     TrafficRoutes[1] = East_West_route_L1[Max_indexes_L1[3]] + East_West_route_L2[Max_indexes_L2[3]];
@@ -226,15 +226,12 @@ void TrafficLight_Logics(void *state_ptr, void *inputs) {
     // L1 South West route + L2 West South route
     TrafficRoutes[6] = South_to_East_route_L1[Max_indexes_L1[5]] + West_South_route_East_North_route_L2[Max_indexes_L2[1]];
     // L1 West East route + L2 North West route
-    TrafficRoutes[7] = West_South_route_East_North_route_L1[Max_indexes_L1[1]] + North_West_route_and_West_north_route_L2[Max_indexes_L2[2]];
+    TrafficRoutes[7] = East_West_route_L1[Max_indexes_L1[3]] + North_West_route_and_West_north_route_L2[Max_indexes_L2[2]];
     // L1 West East route + L2 West South route
-    TrafficRoutes[8] = West_South_route_East_North_route_L1[Max_indexes_L1[1]] + West_South_route_East_North_route_L2[Max_indexes_L2[1]];
-    Find_Maximum_Index(TrafficRoutes, 9, &Max_trafficRouteIndex);
+    TrafficRoutes[8] = East_West_route_L1[Max_indexes_L1[3]] + West_South_route_East_North_route_L2[Max_indexes_L2[1]];
     // L1 East North route + L2 East West route
     TrafficRoutes[9] = East_to_North_route_L1[Max_indexes_L1[4]] + East_West_route_L2[Max_indexes_L2[3]];
-    if (state_ptr != NULL) {
-        *(int *)state_ptr = Max_trafficRouteIndex;
-    }
+    Find_Maximum_Index(TrafficRoutes, 10, &Decided_route);
 }
 
 void Find_Maximum_Index(const int *array, int size, int *max_index) {
