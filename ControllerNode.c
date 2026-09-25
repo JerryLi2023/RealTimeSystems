@@ -60,6 +60,9 @@ int Bottom_EW_L2 = 0;
     
 void TrafficLight_Logics(void *state_ptr, void *inputs) {
 
+    // Calculation Variables
+    int Max_indexes_L1[6];
+    int Max_indexes_L2[6];
     // L1 Traffic Light Logics
 	int North_South_route_Without_turn_L1 = NS_L1 + SN_L1 + Left_NS_L1 + Right_NS_L1; // North South route (Without turn) = NS + SN + PD (Left North South + Right North South) 
     int North_South_route_With_NE_turn_L1 = NS_L1 + SN_L1 + NE_L1 + Left_NS_L1; // North South route (With NE turn) = NS + SN + NE + PD(Left North South) 
@@ -69,6 +72,7 @@ void TrafficLight_Logics(void *state_ptr, void *inputs) {
     North_South_route_L1[1] = North_South_route_With_NE_turn_L1;
     North_South_route_L1[2] = North_South_route_With_SW_turn_L1;
     North_South_route_L1[3] = North_South_route_With_NE_and_SW_turn_L1;
+    Find_Maximum_Index(North_South_route_L1, 4, &Max_indexes_L1[0]);
     int West_South_route_East_North_route_With_WN_and_NE_turn_L1 = NE_L1 + SW_L1 + WS_L1 + WN_L1; // West South route and South West route (With WN and NE turn) = NE + SW + WS + WN 
     int West_South_route_East_North_route_With_WN_and_WE_turn_L1 = WS_L1 + SW_L1 + WN_L1 + WE_L1; // West South route and South West route (With WN and WE turn) = WS + SW + WN + WE 
     int West_South_route_East_North_route_With_WN_turn_L1 = SW_L1 + WS_L1 + WN_L1 + Right_NS_L1; // West South route and South West route (With WN turn) = SW + WS + WN + PD(Right North South)
@@ -79,6 +83,7 @@ void TrafficLight_Logics(void *state_ptr, void *inputs) {
     West_South_route_East_North_route_L1[2] = West_South_route_East_North_route_With_WN_turn_L1;
     West_South_route_East_North_route_L1[3] = West_South_route_East_North_route_With_WE_turn_L1;
     West_South_route_East_North_route_L1[4] = West_South_route_East_North_route_Without_turn_L1;
+    Find_Maximum_Index(West_South_route_East_North_route_L1, 5, &Max_indexes_L1[1]);
     int North_West_route_and_West_north_route_With_NS_and_NE_turn_L1 = NW_L1 + WN_L1 + NS_L1 + NE_L1; // North_West route and West north route (With NS, NE) = NW + WN + NS + NE 
     int North_West_route_and_West_north_route_With_NE_and_ES_turn_L1 = NW_L1 + WN_L1 + NS_L1 + ES_L1; // North_West route and West north route (With NE, ES) = NW + WN + NE + ES 
     int North_West_route_and_West_north_route_With_NE_turn_L1 = NW_L1 + WN_L1 + NE_L1 + Bottom_EW_L1; // North_West route and West north route (With NE) = NW + WN + NE + PD (Bottom East West) 
@@ -89,6 +94,7 @@ void TrafficLight_Logics(void *state_ptr, void *inputs) {
     North_West_route_and_West_north_route_L1[2] = North_West_route_and_West_north_route_With_NE_turn_L1;
     North_West_route_and_West_north_route_L1[3] = North_West_route_and_West_north_route_With_NS_turn_L1;
     North_West_route_and_West_north_route_L1[4] = North_West_route_and_West_north_route_Without_turn_L1;
+    Find_Maximum_Index(North_West_route_and_West_north_route_L1, 5, &Max_indexes_L1[2]);
     int East_West_route_With_WN_and_ES_turn_L1 = EW_L1 + WE_L1 + WN_L1 + ES_L1; // East West route and West to South (With WN and ES turn) = WN + WE + EW + ES 
     int East_West_route_With_WN_turn_L1 = EW_L1 + WE_L1 + WN_L1 + Bottom_EW_L1; // East West route and West to South (With WN) = WN + WE + EW + PD(Bottom East West) 
     int East_West_route_With_ES_turn_L1 = EW_L1 + WE_L1 + ES_L1 + Top_EW_L1; // East West route and West to South (With ES) = WE + EW + ES + PD(Top East West) 
@@ -97,6 +103,7 @@ void TrafficLight_Logics(void *state_ptr, void *inputs) {
     East_West_route_L1[1] = East_West_route_With_WN_turn_L1;
     East_West_route_L1[2] = East_West_route_With_ES_turn_L1;
     East_West_route_L1[3] = East_West_route_Without_turn_L1;
+    Find_Maximum_Index(East_West_route_L1, 4, &Max_indexes_L1[3]);
     int East_to_North_route_With_SW_and_ES_turn_L1 = NE_L1 + ES_L1 + EN_L1 + SW_L1; // East to North route (With SW and ES turn) = NE + ES + EN + SW 
     int East_to_North_route_With_EW_and_ES_turn_L1 = NE_L1 + ES_L1 + EN_L1 + EW_L1; // East to North route (With EW and ES turn) = NE + ES + EN + EW 
     int East_to_North_route_With_ES_turn_L1 = NE_L1 + ES_L1 + EN_L1 + Bottom_EW_L1; // East to North route (With ES turn) = NE + ES + EN + PD(Bottom East West)
@@ -107,6 +114,7 @@ void TrafficLight_Logics(void *state_ptr, void *inputs) {
     East_to_North_route_L1[2] = East_to_North_route_With_ES_turn_L1;
     East_to_North_route_L1[3] = East_to_North_route_With_EW_turn_L1;
     East_to_North_route_L1[4] = East_to_North_route_Without_turn_L1;
+    Find_Maximum_Index(East_to_North_route_L1, 5, &Max_indexes_L1[4]);
     int South_to_East_route_With_WN_and_SW_turn_L1 = ES_L1 + SE_L1 + SW_L1 + WN_L1; // South to East route (With WN and SW) = ES + SE + SW + WN 
     int South_to_East_route_With_SN_and_SW_turn_L1 = ES_L1 + SE_L1 + SW_L1 + SN_L1; // South to East route (With SN and SW) = ES + SE + SW + SN 
     int South_to_East_route_With_SW_turn_L1 = ES_L1 + SE_L1 + SW_L1 + Bottom_EW_L1; // South to East route (With SW turn) = ES + SE + SW + PD(Upper East West) 
@@ -117,6 +125,7 @@ void TrafficLight_Logics(void *state_ptr, void *inputs) {
     South_to_East_route_L1[2] = South_to_East_route_With_SW_turn_L1;
     South_to_East_route_L1[3] = South_to_East_route_With_SN_turn_L1;
     South_to_East_route_L1[4] = South_to_East_route_Without_turn_L1;
+    Find_Maximum_Index(South_to_East_route_L1, 5, &Max_indexes_L1[5]);
     // L2 Traffic Light Logics
 	int North_South_route_Without_turn_L2 = NS_L2 + SN_L2 + Left_NS_L2 + Right_NS_L2; // North South route (Without turn) = NS + SN + PD (Left North South + Right North South) 
     int North_South_route_With_NE_turn_L2 = NS_L2 + SN_L2 + NE_L2 + Left_NS_L2; // North South route (With NE turn) = NS + SN + NE + PD(Left North South) 
@@ -126,6 +135,7 @@ void TrafficLight_Logics(void *state_ptr, void *inputs) {
     North_South_route_L2[1] = North_South_route_With_NE_turn_L2;
     North_South_route_L2[2] = North_South_route_With_SW_turn_L2;
     North_South_route_L2[3] = North_South_route_With_NE_and_SW_turn_L2;
+    Find_Maximum_Index(North_South_route_L2, 4, &Max_indexes_L2[0]);
     int West_South_route_East_North_route_With_WN_and_NE_turn_L2 = NE_L2 + SW_L2 + WS_L2 + WN_L2; // West South route and South West route (With WN and NE turn) = NE + SW + WS + WN 
     int West_South_route_East_North_route_With_WN_and_WE_turn_L2 = WS_L2 + SW_L2 + WN_L2 + WE_L2; // West South route and South West route (With WN and WE turn) = WS + SW + WN + WE 
     int West_South_route_East_North_route_With_WN_turn_L2 = SW_L2 + WS_L2 + WN_L2 + Right_NS_L2; // West South route and South West route (With WN turn) = SW + WS + WN + PD(Right North South)
@@ -136,6 +146,7 @@ void TrafficLight_Logics(void *state_ptr, void *inputs) {
     West_South_route_East_North_route_L2[2] = West_South_route_East_North_route_With_WN_turn_L2;
     West_South_route_East_North_route_L2[3] = West_South_route_East_North_route_With_WE_turn_L2;
     West_South_route_East_North_route_L2[4] = West_South_route_East_North_route_Without_turn_L2;
+    Find_Maximum_Index(West_South_route_East_North_route_L2, 5, &Max_indexes_L2[1]);
     int North_West_route_and_West_north_route_With_NS_and_NE_turn_L2 = NW_L2 + WN_L2 + NS_L2 + NE_L2; // North_West route and West north route (With NS, NE) = NW + WN + NS + NE 
     int North_West_route_and_West_north_route_With_NE_and_ES_turn_L2 = NW_L2 + WN_L2 + NS_L2 + ES_L2; // North_West route and West north route (With NE, ES) = NW + WN + NE + ES 
     int North_West_route_and_West_north_route_With_NE_turn_L2 = NW_L2 + WN_L2 + NE_L2 + Bottom_EW_L2; // North_West route and West north route (With NE) = NW + WN + NE + PD (Bottom East West) 
@@ -146,6 +157,7 @@ void TrafficLight_Logics(void *state_ptr, void *inputs) {
     North_West_route_and_West_north_route_L2[2] = North_West_route_and_West_north_route_With_NE_turn_L2;
     North_West_route_and_West_north_route_L2[3] = North_West_route_and_West_north_route_With_NS_turn_L2;
     North_West_route_and_West_north_route_L2[4] = North_West_route_and_West_north_route_Without_turn_L2;
+    Find_Maximum_Index(North_West_route_and_West_north_route_L2, 5, &Max_indexes_L2[2]);
     int East_West_route_With_WN_and_ES_turn_L2 = EW_L2 + WE_L2 + WN_L2 + ES_L2; // East West route and West to South (With WN and ES turn) = WN + WE + EW + ES 
     int East_West_route_With_WN_turn_L2 = EW_L2 + WE_L2 + WN_L2 + Bottom_EW_L2; // East West route and West to South (With WN) = WN + WE + EW + PD(Bottom East West) 
     int East_West_route_With_ES_turn_L2 = EW_L2 + WE_L2 + ES_L2 + Top_EW_L2; // East West route and West to South (With ES) = WE + EW + ES + PD(Top East West) 
@@ -154,6 +166,7 @@ void TrafficLight_Logics(void *state_ptr, void *inputs) {
     East_West_route_L2[1] = East_West_route_With_WN_turn_L2;
     East_West_route_L2[2] = East_West_route_With_ES_turn_L2;
     East_West_route_L2[3] = East_West_route_Without_turn_L2;
+    Find_Maximum_Index(East_West_route_L2, 4, &Max_indexes_L2[3]);
     int East_to_North_route_With_SW_and_ES_turn_L2 = NE_L2 + ES_L2 + EN_L2 + SW_L2; // East to North route (With SW and ES turn) = NE + ES + EN + SW 
     int East_to_North_route_With_EW_and_ES_turn_L2 = NE_L2 + ES_L2 + EN_L2 + EW_L2; // East to North route (With EW and ES turn) = NE + ES + EN + EW 
     int East_to_North_route_With_ES_turn_L2 = NE_L2 + ES_L2 + EN_L2 + Bottom_EW_L2; // East to North route (With ES turn) = NE + ES + EN + PD(Bottom East West)
@@ -164,6 +177,7 @@ void TrafficLight_Logics(void *state_ptr, void *inputs) {
     East_to_North_route_L2[2] = East_to_North_route_With_ES_turn_L2;
     East_to_North_route_L2[3] = East_to_North_route_With_EW_turn_L2;
     East_to_North_route_L2[4] = East_to_North_route_Without_turn_L2;
+    Find_Maximum_Index(East_to_North_route_L2, 5, &Max_indexes_L2[4]);
     int South_to_East_route_With_WN_and_SW_turn_L2 = ES_L2 + SE_L2 + SW_L2 + WN_L2; // South to East route (With WN and SW) = ES + SE + SW + WN 
     int South_to_East_route_With_SN_and_SW_turn_L2 = ES_L2 + SE_L2 + SW_L2 + SN_L2; // South to East route (With SN and SW) = ES + SE + SW + SN 
     int South_to_East_route_With_SW_turn_L2 = ES_L2 + SE_L2 + SW_L2 + Bottom_EW_L2; // South to East route (With SW turn) = ES + SE + SW + PD(Upper East West) 
@@ -174,4 +188,38 @@ void TrafficLight_Logics(void *state_ptr, void *inputs) {
     South_to_East_route_L2[2] = South_to_East_route_With_SW_turn_L2;
     South_to_East_route_L2[3] = South_to_East_route_With_SN_turn_L2;
     South_to_East_route_L2[4] = South_to_East_route_Without_turn_L2;
+    Find_Maximum_Index(South_to_East_route_L2, 5, &Max_indexes_L2[5]);
+    int TrafficRoutes[10];
+     // L1 North South route + L2 North South route
+    TrafficRoutes[0] = North_South_route_L1[Max_indexes_L1[0]] + North_South_route_L2[Max_indexes_L2[0]];
+    // L1 East West route + L2 East West route
+    TrafficRoutes[1] = East_West_route_L1[Max_indexes_L1[3]] + East_West_route_L2[Max_indexes_L2[3]];
+    // L1 North West route + L2 South East route
+    TrafficRoutes[2] = North_West_route_and_West_north_route_L1[Max_indexes_L1[2]] + South_to_East_route_L2[Max_indexes_L2[5]];
+    // L1 West South route + L2 East North route
+    TrafficRoutes[3] = West_South_route_East_North_route_L1[Max_indexes_L1[1]] + East_to_North_route_L2[Max_indexes_L2[4]];
+    // L1 East North route + L2 North West route
+    TrafficRoutes[4] = East_to_North_route_L1[Max_indexes_L1[4]] + North_West_route_and_West_north_route_L2[Max_indexes_L2[2]];
+    // L1 East South route + L2 East West route
+    TrafficRoutes[5] = South_to_East_route_L1[Max_indexes_L1[5]] + East_West_route_L2[Max_indexes_L2[3]];
+    // L1 South East route + L2 East West route
+    TrafficRoutes[6] = South_to_East_route_L1[Max_indexes_L1[5]] + East_West_route_L2[Max_indexes_L2[3]];
+    // L1 South West route + L2 West South route
+    TrafficRoutes[7] = South_to_East_route_L1[Max_indexes_L1[5]] + West_South_route_East_North_route_L2[Max_indexes_L2[1]];
+    // L1 West East route + L2 North West route
+    TrafficRoutes[8] = West_South_route_East_North_route_L1[Max_indexes_L1[1]] + North_West_route_and_West_north_route_L2[Max_indexes_L2[2]];
+    // L1 West East route + L2 West South route
+    TrafficRoutes[9] = West_South_route_East_North_route_L1[Max_indexes_L1[1]] + West_South_route_East_North_route_L2[Max_indexes_L2[1]];
+}
+
+void Find_Maximum_Index(int *array, int size, int *max_index) {
+    int max_value = array[0];
+    *max_index = 0;
+
+    for (int i = 1; i < size; i++) {
+        if (array[i] > max_value) {
+            max_value = array[i];
+            *max_index = i;
+        }
+    }
 }
