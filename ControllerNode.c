@@ -66,6 +66,10 @@ void North_West_route_and_West_north_route_Case_Statement(int route_index, Inter
 void East_West_route_Case_Statement(int route_index, Intersection *light);
 void East_to_North_route_Case_Statement(int route_index, Intersection *light);
 void South_to_East_route_Case_Statement(int route_index, Intersection *light);
+static void Increase_Waiting_Priority(int *priority, int output);
+void Update_Waiting_Priorities(Intersection *light);
+static void Update_One_Priority(int *priority, int output);
+
 
 
 void StateMachine(void *state, void *inputs) {
@@ -80,6 +84,8 @@ void StateMachine(void *state, void *inputs) {
         }
         Update_Waiting_Priorities(&L1);
         Update_Waiting_Priorities(&L2);
+        Update_One_Priority(&L1.priority.NE, L1.output.NE);
+        Update_One_Priority(&L1.priority.NS, L1.output.NS);
         TrafficLight_Logics(inputs);
 
         if (currentState != RequestedState) {
@@ -564,8 +570,7 @@ void Find_Maximum_Index(const int *array, int size, int *max_index) {
 
 #define MAX_PRIORITY (INT_MAX / 8)
 
-static void Increase_Waiting_Priority(int *priority, int output)
-{
+static void Increase_Waiting_Priority(int *priority, int output) {
     // No waiting request, or movement was allowed this cycle.
     if (*priority <= 0 || output != 0) {
         return;
@@ -605,4 +610,18 @@ void Update_Waiting_Priorities(Intersection *light)
     Increase_Waiting_Priority(&light->priority.Right_NS, light->output.Right_NS);
     Increase_Waiting_Priority(&light->priority.Top_EW, light->output.Top_EW);
     Increase_Waiting_Priority(&light->priority.Bottom_EW, light->output.Bottom_EW);
+}
+
+static void Update_One_Priority(int *priority, int output) {
+    if (*priority <= 0) {
+        return;                  // Nobody waiting
+    }
+
+    if (output == 1) {
+        *priority = 0;           // Served: clear priority
+    } else if (*priority > MAX_PRIORITY / 2) {
+        *priority = MAX_PRIORITY;
+    } else {
+        *priority *= 2;          // Still waiting: double priority
+    }
 }
