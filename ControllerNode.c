@@ -1,5 +1,9 @@
 #include <stddef.h>
-
+#include <stdlib.h>
+#include <stdio.h>
+#include <errno.h>
+#include <sys/iofunc.h>
+#include <sys/netmgr.h>
 
 typedef struct {
     int time;
@@ -71,6 +75,21 @@ void Update_Waiting_Priorities(Intersection *light);
 static void Update_One_Priority(int *priority, int output);
 
 
+int main(int argc, char *argv[]) {
+	printf("Control node running\n");
+
+	pthread_t  th1;
+	void *retval;
+
+	// Create and start the thread
+	pthread_create (&th1, NULL, StateMachine, NULL);
+
+
+	pthread_join (th1, &retval);
+
+	printf("Main Controller Terminated....\n");
+	return ret;
+}
 
 void StateMachine(void *state, void *inputs) {
     enum states currentState = *(enum states *)state;
