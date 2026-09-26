@@ -115,8 +115,7 @@ void StateMachine(void *state, void *inputs) {
     }
 }
 
-void Reset_Traffic_Light_Outputs(Intersection *light)
-{
+void Reset_Traffic_Light_Outputs(Intersection *light) {
     if (light != NULL) {
         light->output = (Movements){0};
     }
@@ -189,8 +188,7 @@ void TrafficLight_State_Machine(void *state_ptr, void *inputs) {
     }
 }
 
-void North_South_route_Case_Statement(int route_index, Intersection *light)
-{
+void North_South_route_Case_Statement(int route_index, Intersection *light) {
     if (light == NULL) {
         return;
     }
@@ -235,8 +233,7 @@ void North_South_route_Case_Statement(int route_index, Intersection *light)
     }
 }
 
-void West_South_route_East_North_route_Case_Statement(int route_index, Intersection *light)
-{
+void West_South_route_East_North_route_Case_Statement(int route_index, Intersection *light) {
     if (light == NULL) {
         return;
     }
@@ -493,8 +490,7 @@ void South_to_East_route_Case_Statement(int route_index, Intersection *light) {
     }
 }
 
-void Calculate_Route_Scores(Intersection *light)
-{
+void Calculate_Route_Scores(Intersection *light) {
     if (light == NULL) {
         return;
     }
@@ -541,8 +537,7 @@ void Calculate_Route_Scores(Intersection *light)
 
 }
 
-void TrafficLight_Logics(void *inputs)
-{
+void TrafficLight_Logics(void *inputs) {
     (void)inputs; // Populate L1.priority and L2.priority before calling.
     Calculate_Route_Scores(&L1);
     Calculate_Route_Scores(&L2);
@@ -603,8 +598,7 @@ static void Increase_Waiting_Priority(int *priority, int output) {
     }
 }
 
-void Update_Waiting_Priorities(Intersection *light)
-{
+void Update_Waiting_Priorities(Intersection *light) {
     if (light == NULL) {
         return;
     }
