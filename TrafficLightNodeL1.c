@@ -36,7 +36,8 @@ typedef struct {
 } ButtonPresses;
 typedef struct {
     TrafficLightState trafficState;
-    TrafficState trafficDirectionL1;
+    TrafficState trafficDirection;
+    TrafficState controllerDirction;
     Movements outputL1;
     Movements outputL2;
     ButtonPresses buttons;
@@ -49,7 +50,11 @@ int train_detected = 0; // Flag to indicate if a train is detected
 
 // Function prototypes
 void TrafficLogicNode(void *state_ptr, void *inputs);
+void TrafficLogicNodeL2(void *state_ptr, void *inputs);
 void TrainLogicNode(void *state_ptr, void *inputs);
+void ControllerStateMachine(void *state_ptr, void *inputs);
+void CrossCommunicationStateMachine(void *state_ptr, void *inputs);
+void NoControllerStateMachine(void *state_ptr, void *inputs);
 
 int main() {
     // Initialize the traffic light state
@@ -70,11 +75,40 @@ int main() {
 void ControllerStateMachine(void *state_ptr, void *inputs) {
     // Implement the controller state machine logic here
     // This function will manage the traffic light states based on inputs and timing
+    enum TrafficLight light = *(TrafficLight *)state_ptr;
+    while (1) {
+        for (int i = 0; i < settings.time; i++) {
+            sleep(settings.peroid);
+            if (train_detected) {
+                break; // Exit the loop if a train is detected
+            }
+        }
+        if (train_detected) {
+            TrainLogicNode(state_ptr, inputs);
+        } else {
+            light.trafficDirection = light.controllerDirction;
+        }
+    }
 }
 
 void CrossCommunicationStateMachine(void *state_ptr, void *inputs) {
     // Implement the cross-communication state machine logic here
     // This function will handle communication between different traffic light nodes
+    enum TrafficLight light = *(TrafficLight *)state_ptr;
+    while (1) {
+        for (int i = 0; i < settings.time; i++) {
+            sleep(settings.peroid);
+            if (train_detected) {
+                break; // Exit the loop if a train is detected
+            }
+        }
+        if (train_detected) {
+            TrainLogicNode(state_ptr, inputs);
+        } else {
+            TrafficLogicNode(state_ptr, inputs);
+            TrafficLogicNodeL2(state_ptr, inputs);
+        }
+    }
 }
 
 void NoControllerStateMachine(void *state_ptr, void *inputs) {
@@ -89,9 +123,9 @@ void NoControllerStateMachine(void *state_ptr, void *inputs) {
             }
         }
         if (train_detected) {
-            TrafficLogicNode(state_ptr, inputs);
-        } else {
             TrainLogicNode(state_ptr, inputs);
+        } else {
+            TrafficLogicNode(state_ptr, inputs);
         }
     }
 }
