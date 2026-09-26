@@ -40,9 +40,15 @@ typedef struct {
     TrafficState trafficDirection;
     Movements output;
     ButtonPresses buttons;
+    int train_detected; // Flag to indicate if a train is detected
 } TrafficLight;
 
-void TrafficLightNode(void *state_ptr, void *inputs) {
+// Function prototypes
+void TrafficLogicNode(void *state_ptr, void *inputs);
+void TrainLogicNode(void *state_ptr, void *inputs);
+
+
+void TrafficLogicNode(void *state_ptr, void *inputs) {
 
     enum TrafficLight light = *(TrafficLight *)state_ptr;
 
@@ -230,10 +236,120 @@ void TrafficLightNode(void *state_ptr, void *inputs) {
                 light.output.WN = 0;
                 light.output.WE = 0;
                 light.output.WS = 0;
+                light.output.Left_NS = 0;
+                light.output.Right_NS = 0;
+                light.output.Top_EW = 0;
+                light.output.Bottom_EW = 0;
                 break;
         }
+    }
+}
 
-        // Simulate a delay for the traffic light cycle
-        sleep(5);
+void TrainLogicNode(void *state_ptr, void *inputs) {
+
+    enum TrafficLight light = *(TrafficLight *)state_ptr
+
+    switch (light.trafficState) {
+        case NS:
+            if (light.button.Right_NS) {
+                light.output.NE = 0;
+                light.output.Right_NS = 1;
+            } else {
+                light.output.NE = 1;
+                light.output.Right_NS = 0;
+            }
+            light.output.NS = 1;
+            light.output.NW = 0;
+            light.output.EN = 0;
+            light.output.ES = 0;
+            light.output.EW = 0;
+            light.output.SN = 1;
+            light.output.SE = 0;
+            if (light.button.Left_NS) {
+                light.output.SW = 0;
+                light.output.Left_NS = 1;
+            } else {
+                light.output.SW = 1;
+                light.output.Left_NS = 0;
+            }
+            light.output.WN = 0;
+            light.output.WE = 0;
+            light.output.WS = 0;
+            light.output.Top_EW = 0;
+            light.output.Bottom_EW = 0;
+            break;
+        case NW:
+            if (light.button.Right_NS) {
+                light.output.NE = 0;
+                light.output.Right_NS = 1;
+            } else {
+                light.output.NE = 1;
+                light.output.Right_NS = 0;
+            }
+            if (light.button.Bottom_NS) {
+                light.output.NS = 0;
+                light.output.Bottom_NS = 1;
+            } else {
+                light.output.NS = 1;
+                light.output.Bottom_NS = 0;
+            }
+            light.output.NW = 1;
+            light.output.EN = 0;
+            light.output.ES = 0;
+            light.output.EW = 0;
+            light.output.SN = 0;
+            light.output.SE = 0;
+            light.output.SW = 0;
+            light.output.WN = 1;
+            light.output.WE = 0;
+            light.output.WS = 0;
+            light.output.Left_NS = 0;
+            light.output.Top_EW = 0;
+        case WS:
+            light.output.NE = 0;
+            light.output.NS = 0;
+            light.output.NW = 0;
+            light.output.EN = 0;
+            light.output.ES = 0;
+            light.output.EW = 0;
+            light.output.SN = 0;
+            light.output.SE = 0;
+            light.output.SW = 1;
+            if (light.button.Top_EW) {
+                light.output.WN = 0;
+                light.output.Top_EW = 1;
+            } else {
+            light.output.WN = 1;
+                light.output.Top_EW = 0;
+            }
+            if (light.button.Right_NS) {
+                light.output.WE = 0;
+                light.output.Right_NS = 1;
+            } else {
+                light.output.WE = 1;
+                light.output.Right_NS = 0;
+            }
+            light.output.WS = 1;
+            light.output.Left_NS = 0;
+            light.output.Bottom_EW = 0;
+            break;
+        default:
+            light.output.NE = 0;
+            light.output.NS = 0;
+            light.output.NW = 0;
+            light.output.EN = 0;
+            light.output.ES = 0;
+            light.output.EW = 0;
+            light.output.SN = 0;
+            light.output.SE = 0;
+            light.output.SW = 0;
+            light.output.WN = 0;
+            light.output.WE = 0;
+            light.output.WS = 0;
+            light.output.Left_NS = 0;
+            light.output.Right_NS = 0;
+            light.output.Top_EW = 0;
+            light.output.Bottom_EW = 0;
+            break;
     }
 }
