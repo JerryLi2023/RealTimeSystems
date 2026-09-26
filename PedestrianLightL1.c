@@ -83,7 +83,7 @@ void *client_setup (void *data) {
 
 	FILE *serverFile;
 
-	serverFile = fopen("/tmp/PedestrianToTraffic.info", "r");
+	serverFile = fopen("/tmp/PedestrianL1.info", "r");
 
 	if (serverFile == NULL) {
 		perror("Failed to open /tmp/PedestrianToTraffic.info");
@@ -151,18 +151,7 @@ int client(int serverPID,  int serverChID) {
 			printf(" Error data '%d' NOT sent to server\n", msg.data); // maybe we did not get a reply from the server
 			break;
         } else { // now process the reply
-        	if (reply.LNSL == 1) {
-        		LeftNorthSouthLight = 1;
-        	}
-        	if (reply.RNSL == 1) {
-        		RightNorthSouthLight = 1;
-        	}
-        	if (reply.TEWL == 1) {
-        		TopEastWestLight = 1;
-        	}
-        	if (BEWL == 1) {
-        		BottomEastWestLight = 1;
-        	}
+			printf("   -->Reply is: '%s'\n", reply.buf);
         }
     }
 
