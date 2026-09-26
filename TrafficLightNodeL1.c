@@ -5,7 +5,10 @@
 #include <sys/iofunc.h>
 #include <sys/netmgr.h>
 
-
+typedef struct {
+    int time;
+    int peroid;
+} Settings;
 typedef enum {
     TRAFFIC_GREEN,
     TRAFFIC_YELLOW,
@@ -43,10 +46,58 @@ typedef struct {
     int train_detected; // Flag to indicate if a train is detected
 } TrafficLight;
 
+// Global variables
+Settings settings = {0};
+int train_detected = 0; // Flag to indicate if a train is detected
+
 // Function prototypes
 void TrafficLogicNode(void *state_ptr, void *inputs);
 void TrainLogicNode(void *state_ptr, void *inputs);
 
+int main() {
+    // Initialize the traffic light state
+    TrafficLight light = {TRAFFIC_GREEN, NS, {0}, {0}, 0};
+
+    pthread_t  th1;
+	void *retval;
+
+	// Create and start the thread
+	pthread_create (&th1, NULL, StateMachine, NULL);
+
+
+	pthread_join (th1, &retval);
+
+    return 0;
+}
+
+void ControllerStateMachine(void *state_ptr, void *inputs) {
+    // Implement the controller state machine logic here
+    // This function will manage the traffic light states based on inputs and timing
+}
+
+void CrossCommunicationStateMachine(void *state_ptr, void *inputs) {
+    // Implement the cross-communication state machine logic here
+    // This function will handle communication between different traffic light nodes
+}
+
+void NoControllerStateMachine(void *state_ptr, void *inputs) {
+    // Implement the no-controller state machine logic here
+    // This function will handle the traffic light behavior when there is no controller
+    enum TrafficLight light = *(TrafficLight *)state_ptr;
+    while (1) {
+        for (int i = 0; i < settings.time; i++) {
+            sleep(settings.peroid);
+            if (train_detected) {
+                break; // Exit the loop if a train is detected
+            }
+        }
+        if (train_detected) {
+            TrafficLogicNode(state_ptr, inputs);
+        } else {
+            TrainLogicNode(state_ptr, inputs);
+        }
+    }
+}
 
 void TrafficLogicNode(void *state_ptr, void *inputs) {
 
