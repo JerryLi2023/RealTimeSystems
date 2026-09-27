@@ -27,18 +27,18 @@ typedef struct {
 	int timer;
 	int peroid;
 	int stateChange;
+	struct PedstrianButton button;
 } PedstrianLight;
 typedef enum {
     TRAFFIC_GREEN,
     TRAFFIC_RED_Flash,
-    TRAFFIC_RED
 } PedestrianState;
-typedef enum {
+typedef struct {
     int LeftNorthSouthLight;
 	int RightNorthSouthLight;
 	int TopEastWestLight;
 	int BottomEastWestLight;
-	PedestrianState states;
+	enum PedestrianState states;
 } PedestrianLightStates;
 typedef struct {
 	struct _pulse hdr;  // Our real data comes after this header
@@ -69,8 +69,10 @@ typedef struct {
 } Pedstrian_server_reply;
 
 // prototypes
-int client(int serverPID, int serverCHID);
+void PedestrianStates(void *state_ptr1, void *state_ptr2);
 void button_checker (void *state_ptr1, void *state_ptr2);
+int client_PedestrianL1(void *state_ptr);
+int server_PedestrianL1(void *state_ptr);
 
 int main(int argc, char *argv[]) {
 	printf("Client running\n");
@@ -78,13 +80,12 @@ int main(int argc, char *argv[]) {
 	pthread_t  th1, th2, th3;
 	void *retval;
 	enum PedstrianLight light;
-	enum PedstrianButton button;
 	enum PedestrianLightState state;
 
 	// Create and start the thread
-	pthread_create (&th1, NULL, button_checker, NULL);
-	pthread_create (&th2, NULL, client_setup, NULL);
-	pthread_create (&th3, NULL, client_setup, NULL);
+	pthread_create (&th1, NULL, button_checker, &light);
+	pthread_create (&th2, NULL, client_PedestrianL1, &light);
+	pthread_create (&th3, NULL, server_PedestrianL1, &light);
 
 	int red_flash;
 	int time;
@@ -94,14 +95,16 @@ int main(int argc, char *argv[]) {
 		red_flash = light.time + (light.time/10); 
 		time = light.time;
 		peroid = light.peroid;
+		PedestrianStates(&light, &state)
 
         for (int i = 0; i < time; i++) {
             sleep(peroid);
-            if (train_detected) {
-                break; // Exit the loop if a train is detected
-            }
+			if (time >= red_flash) {
+				state.states = TRAFFIC_RED_Flash;
+			} else {
+				state.states = TRAFFIC_GREEN;
+			}
         }
-        PedestrianStates;
     }
 
 	pthread_join (th1, &retval);
@@ -111,29 +114,32 @@ int main(int argc, char *argv[]) {
 	return ret;
 }
 
-void PedestrianStates (void *state_ptr1) {
-	enum PedstrianLight light = *(PedstrianLight *)state_ptr1;
-
+void PedestrianStates(void *state_ptr1, void *state_ptr2) {
+	struct PedstrianLight light = *(PedstrianLight *)state_ptr1;
+	struct PedestrianLightStates StateMachine = *(PedestrianLightStates *)state_ptr2;
+	StateMachine.LeftNorthSouthLight = light.LeftNorthSouthLight;
+	StateMachine.RightNorthSouthLight = light.RightNorthSouthLight;
+	StateMachine.TopEastWestLight = light.TopEastWestLight;
+	StateMachine.BottomEastWestLight = light.BottomEastWestLight;
 }
 
 
-void button_checker (void *state_ptr1, void *state_ptr2) {
+void button_checker (void *state_ptr) {
 
-	enum PedstrianLight light = *(PedstrianLight *)state_ptr1;
-	enum PedstrianButton button = *(PedstrianLight *)state_ptr2;
+	struct PedstrianLight light = *(PedstrianLight *)state_ptr;
 
 	while (1) {
 		usleep(5000);
-		if (button.LeftNorthSouthButton == 1 || button.LeftSouthNorthButton == 1) {
+		if (light.button.LeftNorthSouthButton == 1 || light.button.LeftSouthNorthButton == 1) {
 			light.LeftNorthSouth = 1;
 		}
-		if (button.RightNorthSouthButton == 1 || button.RightSouthNorthButton == 1) {
+		if (light.button.RightNorthSouthButton == 1 || light.button.RightSouthNorthButton == 1) {
 			light.RightNorthSouth = 1;
 		}
-		if (button.TopEastWestButton == 1 || button.TopWestEastButton == 1) {
+		if (light.button.TopEastWestButton == 1 || light.button.TopWestEastButton == 1) {
 			light.TopEastWest = 1;
 		}
-		if (button.BottomEastWestButton == 1 || button.BottomWestEastButton == 1) {
+		if (light.button.BottomEastWestButton == 1 || light.button.BottomWestEastButton == 1) {
 			light.BottomEastWest = 1;
 		}
 	}
@@ -142,7 +148,7 @@ void button_checker (void *state_ptr1, void *state_ptr2) {
 /*** Client code ***/
 int client_PedestrianL1(void *state_ptr) {
 
-	enum PedstrianLight light = *(PedstrianLight *)state_ptr;
+	struct PedstrianLight light = *(PedstrianLight *)state_ptr;
 
 	// connection data (you may need to edit this)
 	int serverPID;	// CHANGE THIS Value to PID of the server process
@@ -230,7 +236,7 @@ int server_PedestrianL1(void *state_ptr) {
 
 	serverPID = getpid(); 		// get server process ID
 
-	enum PedstrianLight light = *(PedstrianLight *)state_ptr;
+	struct PedstrianLight light = *(PedstrianLight *)state_ptr;
 
 	// Create Channel
 	chid = ChannelCreate(_NTO_CHF_DISCONNECT);
