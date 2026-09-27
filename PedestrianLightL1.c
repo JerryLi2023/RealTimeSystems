@@ -1,10 +1,14 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <sys/neutrino.h>
 #include <sys/iofunc.h>
 #include <sys/netmgr.h>
 
 
+pthread_mutex_t light_mutex = PTHREAD_MUTEX_INITIALIZER;
 typedef struct {
 	int LeftNorthSouthButton;
 	int LeftSouthNorthButton;
@@ -71,31 +75,39 @@ typedef struct {
 // prototypes
 void PedestrianStates(void *state_ptr1, void *state_ptr2);
 void button_checker (void *state_ptr1, void *state_ptr2);
+void client_StartL1(void *state_ptr);
 int client_PedestrianL1(void *state_ptr);
+void server_StartL1(void *state_ptr);
 int server_PedestrianL1(void *state_ptr);
+
+pthread_mutex_lock(&light_mutex);
+pthread_mutex_unlock(&light_mutex);
 
 int main(int argc, char *argv[]) {
 	printf("Client running\n");
 
 	pthread_t  th1, th2, th3;
 	void *retval;
-	enum PedstrianLight light;
-	enum PedestrianLightState state;
+	struct PedstrianLight light;
+	struct PedestrianLightState state;
+	PedestrianLightStates state = {.states = TRAFFIC_RED_Flash};
 
 	// Create and start the thread
 	pthread_create (&th1, NULL, button_checker, &light);
-	pthread_create (&th2, NULL, client_PedestrianL1, &light);
-	pthread_create (&th3, NULL, server_PedestrianL1, &light);
+	pthread_create (&th2, NULL, client_StartL1, &light);
+	pthread_create (&th3, NULL, server_StartL1, &light);
 
 	int red_flash;
 	int time;
 	int peroid;
 
 	while (1) {
+		pthread_mutex_lock(&light_mutex);
 		red_flash = light.time + (light.time/10); 
 		time = light.time;
 		peroid = light.peroid;
 		PedestrianStates(&light, &state)
+		pthread_mutex_unlock(&light_mutex);
 
         for (int i = 0; i < time; i++) {
             sleep(peroid);
@@ -115,40 +127,53 @@ int main(int argc, char *argv[]) {
 }
 
 void PedestrianStates(void *state_ptr1, void *state_ptr2) {
-	struct PedstrianLight light = *(PedstrianLight *)state_ptr1;
-	struct PedestrianLightStates StateMachine = *(PedestrianLightStates *)state_ptr2;
-	StateMachine.LeftNorthSouthLight = light.LeftNorthSouthLight;
-	StateMachine.RightNorthSouthLight = light.RightNorthSouthLight;
-	StateMachine.TopEastWestLight = light.TopEastWestLight;
-	StateMachine.BottomEastWestLight = light.BottomEastWestLight;
+	PedstrianLight *light = state_ptr1;
+	PedestrianLightStates *StateMachine = state_ptr2;
+	StateMachine->LeftNorthSouthLight = light->LeftNorthSouthLight;
+	StateMachine->RightNorthSouthLight = light->RightNorthSouthLight;
+	StateMachine->TopEastWestLight = light->TopEastWestLight;
+	StateMachine->BottomEastWestLight = light->BottomEastWestLight;
 }
 
 
 void button_checker (void *state_ptr) {
 
-	struct PedstrianLight light = *(PedstrianLight *)state_ptr;
+	PedstrianLight *light = state_ptr1;
 
 	while (1) {
 		usleep(5000);
-		if (light.button.LeftNorthSouthButton == 1 || light.button.LeftSouthNorthButton == 1) {
-			light.LeftNorthSouth = 1;
+		pthread_mutex_lock(&light_mutex);
+		if (light->button->LeftNorthSouthButton == 1 || light->button->LeftSouthNorthButton == 1) {
+			light->LeftNorthSouth = 1;
 		}
-		if (light.button.RightNorthSouthButton == 1 || light.button.RightSouthNorthButton == 1) {
-			light.RightNorthSouth = 1;
+		if (light->button->RightNorthSouthButton == 1 || light->button->RightSouthNorthButton == 1) {
+			light->RightNorthSouth = 1;
 		}
-		if (light.button.TopEastWestButton == 1 || light.button.TopWestEastButton == 1) {
-			light.TopEastWest = 1;
+		if (light->button->TopEastWestButton == 1 || light->button->TopWestEastButton == 1) {
+			light->TopEastWest = 1;
 		}
-		if (light.button.BottomEastWestButton == 1 || light.button.BottomWestEastButton == 1) {
-			light.BottomEastWest = 1;
+		if (light->button->BottomEastWestButton == 1 || light->button->BottomWestEastButton == 1) {
+			light->BottomEastWest = 1;
 		}
+		pthread_mutex_unlock(&light_mutex);
 	}
+}
+
+void client_StartL1(void *state_ptr) {
+	int ret=0;
+	while (1) {
+		sleep(2);
+		ret = client_PedestrianL1(&state_ptr);
+	}
+
+	printf("Main (client) Terminated....\n");
+	return ret;
 }
 
 /*** Client code ***/
 int client_PedestrianL1(void *state_ptr) {
 
-	struct PedstrianLight light = *(PedstrianLight *)state_ptr;
+	PedstrianLight *light = state_ptr1;
 
 	// connection data (you may need to edit this)
 	int serverPID;	// CHANGE THIS Value to PID of the server process
@@ -209,10 +234,12 @@ int client_PedestrianL1(void *state_ptr) {
     	sleep(1);
 
     	// Write your code
-    	msg.LNS = light.LeftNorthSouth;
-    	msg.RNS = light.RightNorthSouth;
-    	msg.TEW = light.TopEastWest;
-    	msg.BEW = light.BottomEastWest;
+		pthread_mutex_lock(&light_mutex);
+    	msg.LNS = light->LeftNorthSouth;
+    	msg.RNS = light->RightNorthSouth;
+    	msg.TEW = light->TopEastWest;
+    	msg.BEW = light->BottomEastWest;
+		pthread_mutex_unlock(&light_mutex);
 
         if (MsgSend(server_coid, &msg, sizeof(msg), &reply, sizeof(reply)) == -1) {
 			printf(" Error data '%d' NOT sent to server\n", msg.data); // maybe we did not get a reply from the server
@@ -230,13 +257,23 @@ int client_PedestrianL1(void *state_ptr) {
     return EXIT_SUCCESS;
 }
 
+void server_StartL1(void *state_ptr) {
+	printf("Server running\n");
+
+    int ret=0;
+    ret = server_PedestrianL1(&state_ptr);
+
+	printf("Main (Server) Terminated....\n");
+	return ret;
+}
+
 /*** Server code ***/
 int server_PedestrianL1(void *state_ptr) {
 	int serverPID=0, chid=0; 	// Server PID and channel ID
 
 	serverPID = getpid(); 		// get server process ID
 
-	struct PedstrianLight light = *(PedstrianLight *)state_ptr;
+	PedstrianLight *light = state_ptr1;
 
 	// Create Channel
 	chid = ChannelCreate(_NTO_CHF_DISCONNECT);
@@ -366,14 +403,17 @@ int server_PedestrianL1(void *state_ptr) {
 			// A message (presumably ours) received
 
 			// put your message handling code here and assemble a reply message
+			sleep(1);
 			
-			light.LeftNorthSouthLight = msg.LNS;
-			light.RightNorthSouthLight = msg.RNS;
-			light.TopEastWestLight = msg.TEW;
-			light.BottomEastWestLight = msg.BEW;
-			light.timer = msg.time;
-			light.peroid = msg.peroid;
-			light.stateChange = msg.stateChange;
+			pthread_mutex_lock(&light_mutex);
+			light->LeftNorthSouthLight = msg.LNS;
+			light->RightNorthSouthLight = msg.RNS;
+			light->TopEastWestLight = msg.TEW;
+			light->BottomEastWestLight = msg.BEW;
+			light->timer = msg.time;
+			light->peroid = msg.peroid;
+			light->stateChange = msg.stateChange;
+			pthread_mutex_unlock(&light_mutex);
 
 		   MsgReply(rcvid, EOK, &replymsg, sizeof(replymsg));
 	   }
