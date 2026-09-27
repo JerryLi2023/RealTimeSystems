@@ -13,7 +13,7 @@ typedef struct {
 	int LeftNorthSouthButton;
 	int LeftSouthNorthButton;
 	int RightNorthSouthButton;
-	int RightSouthButton;
+	int RightSouthNorthButton;
 	int TopEastWestButton;
 	int TopWestEastButton;
 	int BottomEastWestButton;
@@ -31,7 +31,7 @@ typedef struct {
 	int timer;
 	int peroid;
 	int stateChange;
-	struct PedstrianButton button;
+	PedstrianButton button;
 } PedstrianLight;
 typedef enum {
     TRAFFIC_GREEN,
@@ -42,7 +42,7 @@ typedef struct {
 	int RightNorthSouthLight;
 	int TopEastWestLight;
 	int BottomEastWestLight;
-	enum PedestrianState states;
+	PedestrianState states;
 } PedestrianLightStates;
 typedef struct {
 	struct _pulse hdr;  // Our real data comes after this header
@@ -63,7 +63,7 @@ typedef struct {
     int RNS;			// RightNorthSouth
     int TEW;			// TopEastWest
     int BEW;			// BottomEastWest
-    int time
+    int time;
     int peroid;
     int stateChange;    // See if states have changed
 } Pedstrian_server_data;
@@ -74,7 +74,7 @@ typedef struct {
 
 // prototypes
 void PedestrianStates(void *state_ptr1, void *state_ptr2);
-void *button_checker (void *state_ptr1, void *state_ptr2);
+void *button_checker (void *state_ptr);
 void *client_StartL1(void *state_ptr);
 int client_PedestrianL1(void *state_ptr);
 void *server_StartL1(void *state_ptr);
@@ -99,8 +99,8 @@ int main(int argc, char *argv[]) {
 
 	while (1) {
 		pthread_mutex_lock(&light_mutex);
-		red_flash = light.time + (light.time/10); 
-		time = light.time;
+		red_flash = light.timer - (light.timer/10); 
+		time = light.timer;
 		peroid = light.peroid;
 		PedestrianStates(&light, &state)
 		pthread_mutex_unlock(&light_mutex);
@@ -134,7 +134,7 @@ void PedestrianStates(void *state_ptr1, void *state_ptr2) {
 
 void *button_checker (void *state_ptr) {
 
-	PedstrianLight *light = state_ptr1;
+	PedstrianLight *light = state_ptr;
 
 	while (1) {
 		usleep(5000);
@@ -169,7 +169,7 @@ void *client_StartL1(void *state_ptr) {
 /*** Client code ***/
 int client_PedestrianL1(void *state_ptr) {
 
-	PedstrianLight *light = state_ptr1;
+	PedstrianLight *light = state_ptr;
 
 	// connection data (you may need to edit this)
 	int serverPID;	// CHANGE THIS Value to PID of the server process
@@ -269,7 +269,7 @@ int server_PedestrianL1(void *state_ptr) {
 
 	serverPID = getpid(); 		// get server process ID
 
-	PedstrianLight *light = state_ptr1;
+	PedstrianLight *light = state_ptr;
 
 	// Create Channel
 	chid = ChannelCreate(_NTO_CHF_DISCONNECT);
