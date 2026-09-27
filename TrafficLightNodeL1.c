@@ -44,6 +44,7 @@ typedef struct {
     Movements outputL2;
     ButtonPresses buttons;
     int train_detected; // Flag to indicate if a train is detected
+    int stateChange;
 } TrafficLight;
 
 // Pedestrian Structure
@@ -59,6 +60,22 @@ typedef struct {
 	struct _pulse hdr;  // Our real data comes after this header
     char buf[BUF_SIZE]; // Message we send back to clients to tell them the messages was processed correctly.
 } Pedstrian_server_reply;
+typedef struct {
+	struct _pulse hdr;  // Our real data comes after this header
+	int ClientID;       // our data (unique id from client)vv
+    int LNS; 			// LeftNorthSouth
+    int RNS;			// RightNorthSouth
+    int TEW;			// TopEastWest
+    int BEW;			// BottomEastWest
+    int time
+    int peroid;
+    int stateChange;    // See if states have changed
+} Pedstrian_client_data;
+typedef struct {
+	struct _pulse hdr;  // Our real data comes after this header
+    char buf[BUF_SIZE]; // Message we send back to clients to tell them the messages was processed correctly.
+} Pedstrian_client_reply;
+
 
 
 // Global variables
@@ -806,4 +823,92 @@ int server_PedestrianL1(void *state_ptr) {
 
 
 	return EXIT_SUCCESS;
+}
+
+/*** Client code ***/
+int client_PedestrianL1(void *state_ptr) {
+	// connection data (you may need to edit this)
+	int serverPID;	// CHANGE THIS Value to PID of the server process
+	int	serverCHID;			// CHANGE THIS Value to Channel ID of the server process (typically 1)
+
+	FILE *serverFile;
+
+	serverFile = fopen("/tmp/PedestrianL1.info", "r");
+
+	if (serverFile == NULL) {
+		perror("Failed to open /tmp/PedestrianToTraffic.info");
+		return EXIT_FAILURE;
+	}
+
+	if (fscanf(serverFile, "%d", &serverPID) != 1) {
+		printf("Failed to read server PID\n");
+		fclose(serverFile);
+		return EXIT_FAILURE;
+	}
+
+	if (fscanf(serverFile, "%d", &serverCHID) != 1) {
+		printf("Failed to read server channel ID\n");
+		fclose(serverFile);
+		return EXIT_FAILURE;
+	}
+
+	fclose(serverFile);
+
+		printf("Server information loaded from file:\n");
+
+    enum TrafficLight light = *(TrafficLight *)state_ptr
+
+    Pedstrian_client_data msg;
+    Pedstrian_client_reply reply;
+
+    msg.ClientID = 500;
+
+    int server_coid;
+
+	printf("   --> Trying to connect (server) process which has a PID: %d\n",   serverPID);
+	printf("   --> on channel: %d\n\n", serverChID);
+
+	// set up message passing channel
+    server_coid = ConnectAttach(ND_LOCAL_NODE, serverPID, serverChID, _NTO_SIDE_CHANNEL, 0);
+	if (server_coid == -1)
+	{
+        printf("\n    ERROR, could not connect to server!\n\n");
+        return EXIT_FAILURE;
+	}
+
+
+    printf("Connection established to process with PID:%d, Ch:%d\n", serverPID, serverChID);
+
+    // We would have pre-defined data to stuff here
+    msg.hdr.type = 0x00;
+    msg.hdr.subtype = 0x00;
+    char message;
+
+    // Do whatever work you wanted with server connection
+    while (1) {
+    	sleep(1);
+
+    	// Write your code
+    	msg.LNS = light.outputL1.Left_NS;
+    	msg.RNS = light.outputL1.Right_NS;
+    	msg.TEW = light.outputL1.Top_EW;
+    	msg.BEW = light.outputL1.Bottom_EW;
+        msg.time = settings.time;
+        msg.peroid = settings.peroid;
+        msg.stateChange = light.stateChange;
+
+        if (MsgSend(server_coid, &msg, sizeof(msg), &reply, sizeof(reply)) == -1) {
+			printf(" Error data '%d' NOT sent to server\n", msg.data); // maybe we did not get a reply from the server
+			break;
+        } else { // now process the reply
+			printf("   -->Reply is: '%s'\n", reply.buf);
+        }
+    }
+
+
+    // Close the connection
+    printf("\n Sending message to server to tell it to close the connection\n");
+    ConnectDetach(server_coid);
+
+    return EXIT_SUCCESS;
 }

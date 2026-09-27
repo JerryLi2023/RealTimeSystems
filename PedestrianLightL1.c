@@ -22,16 +22,27 @@ typedef struct {
     int RNS;			// RightNorthSouth
     int TEW;			// TopEastWest
     int BEW;			// BottomEastWest
-} my_data;
-
+} Pedstrian_client_data;
 typedef struct {
 	struct _pulse hdr;  // Our real data comes after this header
-	int LNSL; 			// LeftNorthSouth
-	int RNSL;			// RightNorthSouth
-	int TEWL;			// TopEastWest
-	int BEWL;			// BottomEastWest
-    int Time;
-} my_reply;
+    char buf[BUF_SIZE]; // Message we send back to clients to tell them the messages was processed correctly.
+} Pedstrian_client_reply;
+typedef struct {
+	struct _pulse hdr;  // Our real data comes after this header
+	int ClientID;       // our data (unique id from client)vv
+    int LNS; 			// LeftNorthSouth
+    int RNS;			// RightNorthSouth
+    int TEW;			// TopEastWest
+    int BEW;			// BottomEastWest
+    int time
+    int peroid;
+    int stateChange;    // See if states have changed
+} Pedstrian_server_data;
+typedef struct {
+	struct _pulse hdr;  // Our real data comes after this header
+    char buf[BUF_SIZE]; // Message we send back to clients to tell them the messages was processed correctly.
+} Pedstrian_server_reply;
+
 
 
 // prototypes
@@ -111,8 +122,8 @@ void *client_setup (void *data) {
 
 /*** Client code ***/
 int client(int serverPID,  int serverChID) {
-    my_data msg;
-    my_reply reply;
+    Pedstrian_client_data msg;
+    Pedstrian_client_reply reply;
 
     msg.ClientID = 500;
 
