@@ -32,7 +32,14 @@ typedef enum {
     TRAFFIC_GREEN,
     TRAFFIC_RED_Flash,
     TRAFFIC_RED
-} PedestrianLightState;
+} PedestrianState;
+typedef enum {
+    int LeftNorthSouthLight;
+	int RightNorthSouthLight;
+	int TopEastWestLight;
+	int BottomEastWestLight;
+	PedestrianState states;
+} PedestrianLightStates;
 typedef struct {
 	struct _pulse hdr;  // Our real data comes after this header
 	int ClientID;       // our data (unique id from client)vv
@@ -63,19 +70,39 @@ typedef struct {
 
 // prototypes
 int client(int serverPID, int serverCHID);
-void *button_checker (void *data);
-void *client_setup (void *data);
+void button_checker (void *state_ptr1, void *state_ptr2);
 
 int main(int argc, char *argv[]) {
 	printf("Client running\n");
 
-	pthread_t  th1, th2;
+	pthread_t  th1, th2, th3;
 	void *retval;
+	enum PedstrianLight light;
+	enum PedstrianButton button;
+	enum PedestrianLightState state;
 
 	// Create and start the thread
 	pthread_create (&th1, NULL, button_checker, NULL);
 	pthread_create (&th2, NULL, client_setup, NULL);
+	pthread_create (&th3, NULL, client_setup, NULL);
 
+	int red_flash;
+	int time;
+	int peroid;
+
+	while (1) {
+		red_flash = light.time + (light.time/10); 
+		time = light.time;
+		peroid = light.peroid;
+
+        for (int i = 0; i < time; i++) {
+            sleep(peroid);
+            if (train_detected) {
+                break; // Exit the loop if a train is detected
+            }
+        }
+        PedestrianStates;
+    }
 
 	pthread_join (th1, &retval);
 	pthread_join (th2, &retval);
@@ -84,7 +111,13 @@ int main(int argc, char *argv[]) {
 	return ret;
 }
 
-void *button_checker (void *state_ptr1, void *state_ptr2) {
+void PedestrianStates (void *state_ptr1) {
+	enum PedstrianLight light = *(PedstrianLight *)state_ptr1;
+
+}
+
+
+void button_checker (void *state_ptr1, void *state_ptr2) {
 
 	enum PedstrianLight light = *(PedstrianLight *)state_ptr1;
 	enum PedstrianButton button = *(PedstrianLight *)state_ptr2;
