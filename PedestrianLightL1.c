@@ -74,22 +74,18 @@ typedef struct {
 
 // prototypes
 void PedestrianStates(void *state_ptr1, void *state_ptr2);
-void button_checker (void *state_ptr1, void *state_ptr2);
-void client_StartL1(void *state_ptr);
+void *button_checker (void *state_ptr1, void *state_ptr2);
+void *client_StartL1(void *state_ptr);
 int client_PedestrianL1(void *state_ptr);
-void server_StartL1(void *state_ptr);
+void *server_StartL1(void *state_ptr);
 int server_PedestrianL1(void *state_ptr);
-
-pthread_mutex_lock(&light_mutex);
-pthread_mutex_unlock(&light_mutex);
 
 int main(int argc, char *argv[]) {
 	printf("Client running\n");
 
 	pthread_t  th1, th2, th3;
 	void *retval;
-	struct PedstrianLight light;
-	struct PedestrianLightState state;
+	PedstrianLight light = {0};
 	PedestrianLightStates state = {.states = TRAFFIC_RED_Flash};
 
 	// Create and start the thread
@@ -136,34 +132,34 @@ void PedestrianStates(void *state_ptr1, void *state_ptr2) {
 }
 
 
-void button_checker (void *state_ptr) {
+void *button_checker (void *state_ptr) {
 
 	PedstrianLight *light = state_ptr1;
 
 	while (1) {
 		usleep(5000);
 		pthread_mutex_lock(&light_mutex);
-		if (light->button->LeftNorthSouthButton == 1 || light->button->LeftSouthNorthButton == 1) {
+		if (light->button.LeftNorthSouthButton == 1 || light->button.LeftSouthNorthButton == 1) {
 			light->LeftNorthSouth = 1;
 		}
-		if (light->button->RightNorthSouthButton == 1 || light->button->RightSouthNorthButton == 1) {
+		if (light->button.RightNorthSouthButton == 1 || light->button.RightSouthNorthButton == 1) {
 			light->RightNorthSouth = 1;
 		}
-		if (light->button->TopEastWestButton == 1 || light->button->TopWestEastButton == 1) {
+		if (light->button.TopEastWestButton == 1 || light->button.TopWestEastButton == 1) {
 			light->TopEastWest = 1;
 		}
-		if (light->button->BottomEastWestButton == 1 || light->button->BottomWestEastButton == 1) {
+		if (light->button.BottomEastWestButton == 1 || light->button.BottomWestEastButton == 1) {
 			light->BottomEastWest = 1;
 		}
 		pthread_mutex_unlock(&light_mutex);
 	}
 }
 
-void client_StartL1(void *state_ptr) {
+void *client_StartL1(void *state_ptr) {
 	int ret=0;
 	while (1) {
 		sleep(2);
-		ret = client_PedestrianL1(&state_ptr);
+		ret = client_PedestrianL1(state_ptr);
 	}
 
 	printf("Main (client) Terminated....\n");
@@ -257,11 +253,11 @@ int client_PedestrianL1(void *state_ptr) {
     return EXIT_SUCCESS;
 }
 
-void server_StartL1(void *state_ptr) {
+void *server_StartL1(void *state_ptr) {
 	printf("Server running\n");
 
     int ret=0;
-    ret = server_PedestrianL1(&state_ptr);
+    ret = server_PedestrianL1(state_ptr);
 
 	printf("Main (Server) Terminated....\n");
 	return ret;
