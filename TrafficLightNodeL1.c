@@ -561,7 +561,7 @@ void TrafficLogicNodeL2(void *state_ptr, void *inputs) {
 
 void TrainLogicNode(void *state_ptr, void *inputs) {
 
-    enum TrafficLight light = *(TrafficLight *)state_ptr
+    enum TrafficLight light = *(TrafficLight *)state_ptr;
 
     switch (light.trafficState) {
         case NS:
@@ -672,7 +672,7 @@ void TrainLogicNode(void *state_ptr, void *inputs) {
 int server_PedestrianL1(void *state_ptr) {
 	int serverPID=0, chid=0; 	// Server PID and channel ID
 
-    enum TrafficLight light = *(TrafficLight *)state_ptr
+    enum TrafficLight light = *(TrafficLight *)state_ptr;
 
 	serverPID = getpid(); 		// get server process ID
 
@@ -686,7 +686,7 @@ int server_PedestrianL1(void *state_ptr) {
 
 	FILE *serverFile;
 
-	serverFile = fopen("/tmp/PedestrianL1.info", "w");
+	serverFile = fopen("/tmp/TrafficToPedestrian_L1.info", "w");
 
 	if (serverFile == NULL)
 	{
@@ -699,7 +699,7 @@ int server_PedestrianL1(void *state_ptr) {
 
 	fclose(serverFile);
 
-	printf("Server information written to /tmp/myServer.info\n");
+	printf("Server information written to /tmp/PedestrianToTraffic_L1.info\n");
 
 	printf("Server Listening for Clients on:\n");
 	printf("These printf statements can be removed when the myServer.info file is implemented\n");
@@ -836,7 +836,7 @@ int client_PedestrianL1(void *state_ptr) {
 	serverFile = fopen("/tmp/PedestrianL1.info", "r");
 
 	if (serverFile == NULL) {
-		perror("Failed to open /tmp/PedestrianToTraffic.info");
+		perror("Failed to open /tmp/TrafficToPedestrian_L1.info");
 		return EXIT_FAILURE;
 	}
 
