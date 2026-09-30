@@ -99,18 +99,32 @@ int main(int argc, char *argv[]) {
 
 	while (1) {
 		pthread_mutex_lock(&light_mutex);
+
+		if (light.stateChange == 0) {
+			pthread_mutex_unlock(&light_mutex);
+			usleep(10000);
+			continue;
+		}
+
 		red_flash = light.timer - (light.timer/10); 
 		time = light.timer;
 		peroid = light.peroid;
 		PedestrianStates(&light, &state)
+		light.stateChange = 0;
 		pthread_mutex_unlock(&light_mutex);
 
         for (int i = 0; i < time; i++) {
             sleep(peroid);
-			if (time >= red_flash) {
+			if (i >= red_flash) {
 				state.states = TRAFFIC_RED_Flash;
 			} else {
 				state.states = TRAFFIC_GREEN;
+			}
+			pthread_mutex_lock(&light_mutex);
+			int changed = light.stateChange;
+			pthread_mutex_unlock(&light_mutex);
+			if (changed) {
+    			break;
 			}
         }
     }
@@ -119,7 +133,7 @@ int main(int argc, char *argv[]) {
 	pthread_join (th2, &retval);
 
 	printf("Main (client) Terminated....\n");
-	return ret;
+	return EXIT_SUCCESS;
 }
 
 void PedestrianStates(void *state_ptr1, void *state_ptr2) {
@@ -163,7 +177,7 @@ void *client_StartL1(void *state_ptr) {
 	}
 
 	printf("Main (client) Terminated....\n");
-	return ret;
+	return NULL;
 }
 
 /*** Client code ***/
@@ -260,7 +274,7 @@ void *server_StartL1(void *state_ptr) {
     ret = server_PedestrianL1(state_ptr);
 
 	printf("Main (Server) Terminated....\n");
-	return ret;
+	return NULL;
 }
 
 /*** Server code ***/
@@ -408,7 +422,9 @@ int server_PedestrianL1(void *state_ptr) {
 			light->BottomEastWestLight = msg.BEW;
 			light->timer = msg.time;
 			light->peroid = msg.peroid;
-			light->stateChange = msg.stateChange;
+			if (msg.stateChange != 0) {
+    			light->stateChange = 1;
+			}
 			pthread_mutex_unlock(&light_mutex);
 
 		   MsgReply(rcvid, EOK, &replymsg, sizeof(replymsg));
