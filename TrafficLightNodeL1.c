@@ -23,6 +23,11 @@ typedef enum {
     EN, // East-North
     SE, // South-East
 } TrafficState;
+typedef enum {
+    NS, // North-South
+    NW, // North-West
+    WS, // West-South
+} TrainState;
 typedef struct {
     int NE, NS, NW;
     int EN, ES, EW;
@@ -36,12 +41,12 @@ typedef struct {
     int Top_EW, Bottom_EW;
 } ButtonPresses;
 typedef struct {
-    TrafficLightState trafficState;
-    TrafficState trafficDirection;
-    TrafficState controllerDirction;
-    TrafficState trafficData;
-    Movements outputL1;
-    Movements outputL2;
+    TrafficLightState trafficState;   // Shows the current light that traffic is on
+    TrafficState trafficDirection;    // The Current State direction of the traffic light
+    TrafficState controllerDirection; // Recieved traffic controller from the controller
+    TrainState trainDirection;          // The state of the train direction
+    Movements outputL1;               // Ouput data to the traffic light L1
+    Movements outputL2;               // Ouput data to the traffic light L2
     ButtonPresses buttons;
     int train_detected; // Flag to indicate if a train is detected
     int stateChange;
@@ -76,11 +81,43 @@ typedef struct {
     char buf[BUF_SIZE]; // Message we send back to clients to tell them the messages was processed correctly.
 } Pedstrian_client_reply;
 
+// Traffic light L2 Structure
+
+typedef struct {
+	struct _pulse hdr;  // Our real data comes after this header
+	int ClientID;       // our data (unique id from client)vv
+    int NE, NS, NW;
+    int EN, ES, EW;
+    int SN, SE, SW;
+    int WN, WE, WS;
+    int Left_NS, Right_NS;
+    int Top_EW, Bottom_EW;
+    int time
+    int peroid;
+    int stateChange;    // See if states have changed
+} L2_server_data;
+typedef struct {
+	struct _pulse hdr;  // Our real data comes after this header
+    char buf[BUF_SIZE]; // Message we send back to clients to tell them the messages was processed correctly.
+} L2_server_reply;
+typedef struct {
+	struct _pulse hdr;  // Our real data comes after this header
+	int ClientID;       // our data (unique id from client)vv
+    int LNS; 			// LeftNorthSouth
+    int RNS;			// RightNorthSouth
+    int TEW;			// TopEastWest
+    int BEW;			// BottomEastWest
+} L2_client_data;
+typedef struct {
+	struct _pulse hdr;  // Our real data comes after this header
+    char buf[BUF_SIZE]; // Message we send back to clients to tell them the messages was processed correctly.
+} L2_client_reply;
 
 
 // Global variables
 Settings settings = {0};
 int train_detected = 0; // Flag to indicate if a train is detected
+int train_state = 0; // Flag to indicate if state machine should remain at train state
 
 // Function prototypes
 void TrafficLogicNode(void *state_ptr, void *inputs);
@@ -110,18 +147,20 @@ int main() {
 void ControllerStateMachine(void *state_ptr, void *inputs) {
     // Implement the controller state machine logic here
     // This function will manage the traffic light states based on inputs and timing
-    enum TrafficLight light = *(TrafficLight *)state_ptr;
+    struct TrafficLight light = *(struct TrafficLight *)state_ptr;
     while (1) {
+        int train_detected 
         for (int i = 0; i < settings.time; i++) {
             sleep(settings.peroid);
             if (train_detected) {
                 break; // Exit the loop if a train is detected
             }
         }
-        if (train_detected) {
+        if (train_state) {
             TrainLogicNode(state_ptr, inputs);
         } else {
-            light.trafficDirection = light.controllerDirction;
+            light.trafficDirection = light.controllerDirection;
+            TrafficLogicNode(state_ptr, inputs);
         }
     }
 }
@@ -129,7 +168,7 @@ void ControllerStateMachine(void *state_ptr, void *inputs) {
 void CrossCommunicationStateMachine(void *state_ptr, void *inputs) {
     // Implement the cross-communication state machine logic here
     // This function will handle communication between different traffic light nodes
-    enum TrafficLight light = *(TrafficLight *)state_ptr;
+    struct TrafficLight light = *(struct TrafficLight *)state_ptr;
     while (1) {
         for (int i = 0; i < settings.time; i++) {
             sleep(settings.peroid);
@@ -137,7 +176,7 @@ void CrossCommunicationStateMachine(void *state_ptr, void *inputs) {
                 break; // Exit the loop if a train is detected
             }
         }
-        if (train_detected) {
+        if (train_state) {
             TrainLogicNode(state_ptr, inputs);
         } else {
             TrafficLogicNode(state_ptr, inputs);
@@ -157,7 +196,7 @@ void NoControllerStateMachine(void *state_ptr, void *inputs) {
                 break; // Exit the loop if a train is detected
             }
         }
-        if (train_detected) {
+        if (train_state) {
             TrainLogicNode(state_ptr, inputs);
         } else {
             TrafficLogicNode(state_ptr, inputs);
@@ -171,7 +210,7 @@ void TrafficLogicNode(void *state_ptr, void *inputs) {
 
     while (1) {
         // Simulate traffic light state changes
-        switch (light.trafficState) {
+        switch (light.trafficDirection) {
             case NS:
                 if (light.button.Right_NS) {
                     light.outputL1.NE = 0;
@@ -368,7 +407,7 @@ void TrafficLogicNodeL2(void *state_ptr, void *inputs) {
 
     while (1) {
         // Simulate traffic light state changes
-        switch (light.trafficState) {
+        switch (light.trafficDirection) {
             case NS:
                 if (light.button.Right_NS) {
                     light.outputL2.NE = 0;
@@ -563,7 +602,7 @@ void TrainLogicNode(void *state_ptr, void *inputs) {
 
     enum TrafficLight light = *(TrafficLight *)state_ptr;
 
-    switch (light.trafficState) {
+    switch (light.trainDirection) {
         case NS:
             if (light.button.Right_NS) {
                 light.output.NE = 0;
