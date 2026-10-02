@@ -29,6 +29,7 @@ typedef struct {
 
 typedef struct {
     Movements priority;
+    Movements input;
     Movements output;
 
     // Scores for every variant in each route group.
@@ -58,6 +59,69 @@ int train_detected = 0; // Flag to indicate if a train is detected
  * L2.output.WE = 1;
  * North_South_route_Case_Statement(L1.best.North_South, &L1);
  */
+
+ // Send and receive Structs
+ // Server side receives data from the client and sends back a reply.
+ // Client side sends data to the server and receives a reply.
+typedef struct {
+    struct _pulse hdr;  // Our real data comes after this header
+    int ClientID;       // our data (unique id from client)vv
+    int NE, NS, NW;
+    int EN, ES, EW;
+    int SN, SE, SW;
+    int WN, WE, WS;
+    int Left_NS, Right_NS;
+    int Top_EW, Bottom_EW;
+} Controller_to_L1_data;
+typedef struct {
+    struct _pulse hdr;  // Our real data comes after this header
+    char buf[BUF_SIZE]; // Message we send back to clients to tell them the messages was processed correctly.
+} Controller_to_L1_reply;
+typedef struct {
+    struct _pulse hdr;  // Our real data comes after this header
+    int ClientID;       // our data (unique id from client)vv
+    int NE, NS, NW;
+    int EN, ES, EW;
+    int SN, SE, SW;
+    int WN, WE, WS;
+    int Left_NS, Right_NS;
+    int Top_EW, Bottom_EW;
+} L1_to_Controller_data;
+typedef struct {
+    struct _pulse hdr;  // Our real data comes after this header
+    char buf[BUF_SIZE]; // Message we send back to clients to tell them the messages was processed correctly.
+} L1_to_Controller_reply;
+
+typedef struct {
+    struct _pulse hdr;  // Our real data comes after this header
+    int ClientID;       // our data (unique id from client)vv
+    int NE, NS, NW;
+    int EN, ES, EW;
+    int SN, SE, SW;
+    int WN, WE, WS;
+    int Left_NS, Right_NS;
+    int Top_EW, Bottom_EW;
+} Controller_to_L2_data;
+typedef struct {
+    struct _pulse hdr;  // Our real data comes after this header
+    char buf[BUF_SIZE]; // Message we send back to clients to tell them the messages was processed correctly.
+} Controller_to_L2_reply;
+typedef struct {
+    struct _pulse hdr;  // Our real data comes after this header
+    int ClientID;       // our data (unique id from client)vv
+    int NE, NS, NW;
+    int EN, ES, EW;
+    int SN, SE, SW;
+    int WN, WE, WS;
+    int Left_NS, Right_NS;
+    int Top_EW, Bottom_EW;
+} L2_to_Controller_data;
+typedef struct {
+    struct _pulse hdr;  // Our real data comes after this header
+    char buf[BUF_SIZE]; // Message we send back to clients to tell them the messages was processed correctly.
+} L2_to_Controller_reply;
+
+
 
 void Find_Maximum_Index(const int *array, int size, int *max_index);
 void Calculate_Route_Scores(Intersection *light);
@@ -637,4 +701,533 @@ static void Update_One_Priority(int *priority, int output) {
     } else {
         *priority *= 2;          // Still waiting: double priority
     }
+}
+
+
+/*** Client code ***/
+int client_Controller_L1(void *state_ptr) {
+
+    int serverPID;
+    int serverCHID;
+
+    FILE *serverFile;
+
+    serverFile = fopen("/tmp/Controller_To_L1.info", "r");
+
+    if (serverFile == NULL) {
+        perror("Failed to open /tmp/Controller_To_L1.info");
+        return EXIT_FAILURE;
+    }
+
+    if (fscanf(serverFile, "%d", &serverPID) != 1) {
+        printf("Failed to read server PID\n");
+        fclose(serverFile);
+        return EXIT_FAILURE;
+    }
+
+    if (fscanf(serverFile, "%d", &serverCHID) != 1) {
+        printf("Failed to read server channel ID\n");
+        fclose(serverFile);
+        return EXIT_FAILURE;
+    }
+
+    fclose(serverFile);
+
+        printf("Server information loaded from file:\n");
+    Controller_to_L1_data msg = {0};
+    Controller_to_L1_reply reply = {0};
+
+    msg.ClientID = 500;
+
+    int server_coid;
+
+    printf("   --> Trying to connect (server) process which has a PID: %d\n",   serverPID);
+    printf("   --> on channel: %d\n\n", serverCHID);
+
+    // set up message passing channel
+    server_coid = ConnectAttach(ND_LOCAL_NODE, serverPID, serverCHID, _NTO_SIDE_CHANNEL, 0);
+    if (server_coid == -1)
+    {
+        printf("\n    ERROR, could not connect to server!\n\n");
+        return EXIT_FAILURE;
+    }
+
+
+    printf("Connection established to process with PID:%d, Ch:%d\n", serverPID, serverCHID);
+
+    // We would have pre-defined data to stuff here
+    msg.hdr.type = 0x00;
+    msg.hdr.subtype = 0x00;
+
+    // Do whatever work you wanted with server connection
+    while (1) {
+        sleep(1);
+
+        // Write your code
+        msg.NE = L1->output->NE;
+        msg.NS = L1->output->NS;
+        msg.NW = L1->output->NW;
+        msg.EN = L1->output->EN;
+        msg.ES = L1->output->ES;
+        msg.EW = L1->output->EW;
+        msg.SN = L1->output->SN;
+        msg.SE = L1->output->SE;
+        msg.SW = L1->output->SW;
+        msg.WN = L1->output->WN;
+        msg.WE = L1->output->WE;
+        msg.WS = L1->output->WS;
+        msg.Left_NS = L1->output->Left_NS;
+        msg.Right_NS = L1->output->Right_NS;
+        msg.Top_EW = L1->output->Top_EW;
+        msg.Bottom_EW = L1->output->Bottom_EW;
+
+        if (MsgSend(server_coid, &msg, sizeof(msg), &reply, sizeof(reply)) == -1) {
+            perror("MsgSend");
+            break;
+        } else { // now process the reply
+            printf("   -->Reply is: '%.*s'\n", (int)sizeof(reply.buf), reply.buf);
+        }
+    }
+
+
+    // Close the connection
+    printf("\n Sending message to server to tell it to close the connection\n");
+    ConnectDetach(server_coid);
+
+    return EXIT_SUCCESS;
+}
+
+/*** Server code ***/
+int server_Controller_L1(void *state_ptr) {
+    int serverPID=0, chid=0;
+
+    serverPID = getpid();
+
+    ControllerLight *light = state_ptr;
+
+    // Create Channel
+    chid = ChannelCreate(_NTO_CHF_DISCONNECT);
+    if (chid == -1)  // _NTO_CHF_DISCONNECT flag used to allow detach
+    {
+        printf("\nFailed to create communication channel on server\n");
+        return EXIT_FAILURE;
+    }
+
+    FILE *serverFile;
+
+    serverFile = fopen("/tmp/Controller_To_L1.info", "w");
+
+    if (serverFile == NULL)
+    {
+        perror("Failed to open /tmp/Controller_To_L1.info");
+        ChannelDestroy(chid);
+        return EXIT_FAILURE;
+    }
+
+    fprintf(serverFile, "%d\n%d\n", serverPID, chid);
+
+    fclose(serverFile);
+
+    printf("Server information written to /tmp/TrafficToPedestrian_L1.info\n");
+
+    printf("Server Listening for Clients on:\n");
+    printf("  --> Process ID   : %d \n", serverPID);
+    printf("  --> Channel ID   : %d \n\n", chid);
+
+    Pedstrian_server_data msg = {0};
+    struct _msg_info info;
+    int rcvid=0, msgnum=0;      // no message received yet
+    int Stay_alive=0, living=0; // server stays running (ignores _PULSE_CODE_DISCONNECT request)
+
+    Pedstrian_server_reply replymsg = {0};           // replymsg structure for sending back to client
+    replymsg.hdr.type = 0x01;
+    replymsg.hdr.subtype = 0x00;
+    snprintf(replymsg.buf, sizeof(replymsg.buf), "OK");
+
+    living =1;
+    while (living)
+    {
+       // Do your MsgReceive's here now with the chid
+       rcvid = MsgReceive(chid, &msg, sizeof(msg), &info);
+
+       if (rcvid == -1)  // Error condition, exit
+       {
+           if (errno == EINTR) continue;
+           perror("MsgReceive");
+           break;
+       }
+
+       // did we receive a Pulse or message?
+       // for Pulses:
+       if (rcvid == 0)  //  Pulse received, work out what type
+       {
+           switch (msg.hdr.code)
+           {
+               case _PULSE_CODE_DISCONNECT:
+                    // A client disconnected all its connections by running
+                    // name_close() for each name_open()  or terminated
+                   if( Stay_alive == 0)
+                   {
+                       ConnectDetach(msg.hdr.scoid);
+                       printf("\nServer was told to Detach from connection:%d ...\n", msg.hdr.scoid);
+                       continue;
+                   }
+                   else
+                   {
+                       printf("\nServer received Detach pulse from connection:%d but rejected it ...\n", msg.hdr.scoid);
+                   }
+                   break;
+
+               case _PULSE_CODE_UNBLOCK:
+                    // REPLY blocked client wants to unblock (was hit by a signal
+                    // or timed out).  It's up to you if you reply now or later.
+                   printf("\nServer got _PULSE_CODE_UNBLOCK after %d, msgnum\n", msgnum);
+                   break;
+
+               case _PULSE_CODE_COIDDEATH:  // from the kernel
+                   printf("\nServer got _PULSE_CODE_COIDDEATH after %d, msgnum\n", msgnum);
+                   break;
+
+               case _PULSE_CODE_THREADDEATH: // from the kernel
+                   printf("\nServer got _PULSE_CODE_THREADDEATH after %d, msgnum\n", msgnum);
+                   break;
+
+               default:
+                   // Some other pulse sent by one of your processes or the kernel
+                   printf("\nServer got some other pulse after %d, msgnum\n", msgnum);
+                   break;
+
+           }
+           continue;// go back to top of while loop
+       }
+
+       // for messages:
+       if(rcvid > 0) {
+           msgnum++;
+
+            // If the Global Name Service (gns) is running, name_open() sends a connect message. The server must EOK it.
+            if (msg.hdr.type == _IO_CONNECT )
+            {
+                MsgReply( rcvid, EOK, NULL, 0 );
+                printf("\n gns service is running....");
+                continue;   // go back to top of while loop
+            }
+
+            // Some other I/O message was received; reject it
+            if (msg.hdr.type > _IO_BASE && msg.hdr.type <= _IO_MAX )
+            {
+                MsgError( rcvid, ENOSYS );
+                printf("\n Server received and IO message and rejected it....");
+                continue;   // go back to top of while loop
+            }
+
+            if ((size_t)info.msglen != sizeof(msg) ||
+                (size_t)info.srcmsglen != sizeof(msg)) {
+                MsgError(rcvid, EMSGSIZE);
+                continue;
+            }
+            if (msg.hdr.type != 0x00 ||
+                (msg.stateChange != 0 && msg.stateChange != 1)) {
+                MsgError(rcvid, EINVAL);
+                continue;
+            }
+
+
+                L2.input.NE = msg.NE;
+                L2.input.NS = msg.NS;
+                L2.input.NW = msg.NW;
+                L2.input.EN = msg.EN;
+                L2.input.ES = msg.ES;
+                L2.input.EW = msg.EW;
+                L2.input.SN = msg.SN;
+                L2.input.SE = msg.SE;
+                L2.input.SW = msg.SW;
+                L2.input.WN = msg.WN;
+                L2.input.WE = msg.WE;
+                L2.input.WS = msg.WS;
+                L2.input.Left_NS = msg.Left_NS;
+                L2.input.Right_NS = msg.Right_NS;
+                L2.input.Top_EW = msg.Top_EW;
+                L2.input.Bottom_EW = msg.Bottom_EW;
+
+           MsgReply(rcvid, EOK, &replymsg, sizeof(replymsg));
+       }
+       else
+       {
+           printf("\nERROR: Server received something, but could not handle it correctly\n");
+       }
+
+    }
+
+    printf("\nServer received Destroy command\n");
+    // destroyed channel before exiting
+    ChannelDestroy(chid);
+    unlink("/tmp/TrafficToPedestrian_L1.info");
+
+    return EXIT_FAILURE;
+}
+
+
+/*** Client code ***/
+int client_Controller_L2(void *state_ptr) {
+
+    int serverPID;
+    int serverCHID;
+
+    FILE *serverFile;
+
+    serverFile = fopen("/tmp/Controller_To_L2.info", "r");
+
+    if (serverFile == NULL) {
+        perror("Failed to open /tmp/Controller_To_L2.info");
+        return EXIT_FAILURE;
+    }
+
+    if (fscanf(serverFile, "%d", &serverPID) != 1) {
+        printf("Failed to read server PID\n");
+        fclose(serverFile);
+        return EXIT_FAILURE;
+    }
+
+    if (fscanf(serverFile, "%d", &serverCHID) != 1) {
+        printf("Failed to read server channel ID\n");
+        fclose(serverFile);
+        return EXIT_FAILURE;
+    }
+
+    fclose(serverFile);
+
+        printf("Server information loaded from file:\n");
+    Controller_to_L2_data msg = {0};
+    Controller_to_L2_reply reply = {0};
+
+    msg.ClientID = 500;
+
+    int server_coid;
+
+    printf("   --> Trying to connect (server) process which has a PID: %d\n",   serverPID);
+    printf("   --> on channel: %d\n\n", serverCHID);
+
+    // set up message passing channel
+    server_coid = ConnectAttach(ND_LOCAL_NODE, serverPID, serverCHID, _NTO_SIDE_CHANNEL, 0);
+    if (server_coid == -1)
+    {
+        printf("\n    ERROR, could not connect to server!\n\n");
+        return EXIT_FAILURE;
+    }
+
+
+    printf("Connection established to process with PID:%d, Ch:%d\n", serverPID, serverCHID);
+
+    // We would have pre-defined data to stuff here
+    msg.hdr.type = 0x00;
+    msg.hdr.subtype = 0x00;
+
+    // Do whatever work you wanted with server connection
+    while (1) {
+        sleep(1);
+
+        // Write your code
+        msg.NE = L2->output->NE;
+        msg.NS = L2->output->NS;
+        msg.NW = L2->output->NW;
+        msg.EN = L2->output->EN;
+        msg.ES = L2->output->ES;
+        msg.EW = L2->output->EW;
+        msg.SN = L2->output->SN;
+        msg.SE = L2->output->SE;
+        msg.SW = L2->output->SW;
+        msg.WN = L2->output->WN;
+        msg.WE = L2->output->WE;
+        msg.WS = L2->output->WS;
+        msg.Left_NS = L2->output->Left_NS;
+        msg.Right_NS = L2->output->Right_NS;
+        msg.Top_EW = L2->output->Top_EW;
+        msg.Bottom_EW = L2->output->Bottom_EW;
+
+        if (MsgSend(server_coid, &msg, sizeof(msg), &reply, sizeof(reply)) == -1) {
+            perror("MsgSend");
+            break;
+        } else { // now process the reply
+            printf("   -->Reply is: '%.*s'\n", (int)sizeof(reply.buf), reply.buf);
+        }
+    }
+
+
+    // Close the connection
+    printf("\n Sending message to server to tell it to close the connection\n");
+    ConnectDetach(server_coid);
+
+    return EXIT_SUCCESS;
+}
+
+/*** Server code ***/
+int server_Controller_L2(void *state_ptr) {
+    int serverPID=0, chid=0;
+
+    serverPID = getpid();
+
+    ControllerLight *light = state_ptr;
+
+    // Create Channel
+    chid = ChannelCreate(_NTO_CHF_DISCONNECT);
+    if (chid == -1)  // _NTO_CHF_DISCONNECT flag used to allow detach
+    {
+        printf("\nFailed to create communication channel on server\n");
+        return EXIT_FAILURE;
+    }
+
+    FILE *serverFile;
+
+    serverFile = fopen("/tmp/L2_To_Controller.info", "w");
+
+    if (serverFile == NULL)
+    {
+        perror("Failed to open /tmp/L2_To_Controller.info");
+        ChannelDestroy(chid);
+        return EXIT_FAILURE;
+    }
+
+    fprintf(serverFile, "%d\n%d\n", serverPID, chid);
+
+    fclose(serverFile);
+
+    printf("Server information written to /tmp/L2_To_Controller.info\n");
+
+    printf("Server Listening for Clients on:\n");
+    printf("  --> Process ID   : %d \n", serverPID);
+    printf("  --> Channel ID   : %d \n\n", chid);
+
+    Pedstrian_server_data msg = {0};
+    struct _msg_info info;
+    int rcvid=0, msgnum=0;      // no message received yet
+    int Stay_alive=0, living=0; // server stays running (ignores _PULSE_CODE_DISCONNECT request)
+
+    Pedstrian_server_reply replymsg = {0};           // replymsg structure for sending back to client
+    replymsg.hdr.type = 0x01;
+    replymsg.hdr.subtype = 0x00;
+    snprintf(replymsg.buf, sizeof(replymsg.buf), "OK");
+
+    living =1;
+    while (living)
+    {
+       // Do your MsgReceive's here now with the chid
+       rcvid = MsgReceive(chid, &msg, sizeof(msg), &info);
+
+       if (rcvid == -1)  // Error condition, exit
+       {
+           if (errno == EINTR) continue;
+           perror("MsgReceive");
+           break;
+       }
+
+       // did we receive a Pulse or message?
+       // for Pulses:
+       if (rcvid == 0)  //  Pulse received, work out what type
+       {
+           switch (msg.hdr.code)
+           {
+               case _PULSE_CODE_DISCONNECT:
+                    // A client disconnected all its connections by running
+                    // name_close() for each name_open()  or terminated
+                   if( Stay_alive == 0)
+                   {
+                       ConnectDetach(msg.hdr.scoid);
+                       printf("\nServer was told to Detach from connection:%d ...\n", msg.hdr.scoid);
+                       continue;
+                   }
+                   else
+                   {
+                       printf("\nServer received Detach pulse from connection:%d but rejected it ...\n", msg.hdr.scoid);
+                   }
+                   break;
+
+               case _PULSE_CODE_UNBLOCK:
+                    // REPLY blocked client wants to unblock (was hit by a signal
+                    // or timed out).  It's up to you if you reply now or later.
+                   printf("\nServer got _PULSE_CODE_UNBLOCK after %d, msgnum\n", msgnum);
+                   break;
+
+               case _PULSE_CODE_COIDDEATH:  // from the kernel
+                   printf("\nServer got _PULSE_CODE_COIDDEATH after %d, msgnum\n", msgnum);
+                   break;
+
+               case _PULSE_CODE_THREADDEATH: // from the kernel
+                   printf("\nServer got _PULSE_CODE_THREADDEATH after %d, msgnum\n", msgnum);
+                   break;
+
+               default:
+                   // Some other pulse sent by one of your processes or the kernel
+                   printf("\nServer got some other pulse after %d, msgnum\n", msgnum);
+                   break;
+
+           }
+           continue;// go back to top of while loop
+       }
+
+       // for messages:
+       if(rcvid > 0) {
+           msgnum++;
+
+            // If the Global Name Service (gns) is running, name_open() sends a connect message. The server must EOK it.
+            if (msg.hdr.type == _IO_CONNECT )
+            {
+                MsgReply( rcvid, EOK, NULL, 0 );
+                printf("\n gns service is running....");
+                continue;   // go back to top of while loop
+            }
+
+            // Some other I/O message was received; reject it
+            if (msg.hdr.type > _IO_BASE && msg.hdr.type <= _IO_MAX )
+            {
+                MsgError( rcvid, ENOSYS );
+                printf("\n Server received and IO message and rejected it....");
+                continue;   // go back to top of while loop
+            }
+
+            if ((size_t)info.msglen != sizeof(msg) ||
+                (size_t)info.srcmsglen != sizeof(msg)) {
+                MsgError(rcvid, EMSGSIZE);
+                continue;
+            }
+            if (msg.hdr.type != 0x00 ||
+                (msg.stateChange != 0 && msg.stateChange != 1)) {
+                MsgError(rcvid, EINVAL);
+                continue;
+            }
+
+            // An unchanged status must not overwrite a pending command.
+                L2.input.NE = msg.NE;
+                L2.input.NS = msg.NS;
+                L2.input.NW = msg.NW;
+                L2.input.EN = msg.EN;
+                L2.input.ES = msg.ES;
+                L2.input.EW = msg.EW;
+                L2.input.SN = msg.SN;
+                L2.input.SE = msg.SE;
+                L2.input.SW = msg.SW;
+                L2.input.WN = msg.WN;
+                L2.input.WE = msg.WE;
+                L2.input.WS = msg.WS;
+                L2.input.Left_NS = msg.Left_NS;
+                L2.input.Right_NS = msg.Right_NS;
+                L2.input.Top_EW = msg.Top_EW;
+                L2.input.Bottom_EW = msg.Bottom_EW;
+
+
+           MsgReply(rcvid, EOK, &replymsg, sizeof(replymsg));
+       }
+       else
+       {
+           printf("\nERROR: Server received something, but could not handle it correctly\n");
+       }
+
+    }
+
+    printf("\nServer received Destroy command\n");
+    // destroyed channel before exiting
+    ChannelDestroy(chid);
+    unlink("/tmp/TrafficToPedestrian_L1.info");
+
+    return EXIT_FAILURE;
 }
