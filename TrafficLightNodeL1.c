@@ -112,7 +112,8 @@ void ControllerStateMachine(void *state_ptr, void *inputs);
 void CrossCommunicationStateMachine(void *state_ptr, void *inputs);
 void NoControllerStateMachine(void *state_ptr, void *inputs);
 void StateOutput(TrafficState state, Movements *output);
-#ifndef SAMPLECODE_NO_MAIN
+
+
 int main(void) {
     TrafficLight light = {
         .trafficState = TRAFFIC_GREEN,
@@ -144,7 +145,23 @@ int main(void) {
     NoControllerStateMachine(&light, NULL);
     return 0;
 }
-#endif
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Code below is for the traffic light logic node, which is separate from the controller and train nodes.
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
+void TrafficLightTransition(TrafficLight *light, int tick, int greenTicks, int yellowTicks)
+{
+    if (tick < greenTicks) {
+        light->trafficState = TRAFFIC_GREEN;
+    } else if (tick < greenTicks + yellowTicks) {
+        light->trafficState = TRAFFIC_YELLOW;
+    } else {
+        light->trafficState = TRAFFIC_RED;
+    }
+}
 
 void ControllerStateMachine(void *state_ptr, void *inputs) {
     // Implement the controller state machine logic here
@@ -154,6 +171,7 @@ void ControllerStateMachine(void *state_ptr, void *inputs) {
     if (light->train_detected) {
         light->trafficDirection = TrainLogicNode(light);
         StateOutput(light->trafficDirection, &light->outputL1);
+        TrafficLightTransition(light, i, settings.time - 3, 2);
         for (int i = 0; i < settings.time; i++) {
             sleep(settings.peroid);
         }
@@ -162,6 +180,7 @@ void ControllerStateMachine(void *state_ptr, void *inputs) {
         StateOutput(light->trafficDirection, &light->outputL1);
         for (int i = 0; i < settings.time; i++) {
             sleep(settings.peroid);
+            TrafficLightTransition(light, i, settings.time - 3, 2);
             if (light->train_detected) {
                 break; // Exit the loop if a train is detected
             }
@@ -178,6 +197,7 @@ void CrossCommunicationStateMachine(void *state_ptr, void *state_ptr2) {
     if (L1->train_detected) {
         L1->trafficDirection = TrainLogicNode(L1);
         StateOutput(L1->trafficDirection, &L1->outputL1);
+        TrafficLightTransition(light, i, settings.time - 3, 2);
         for (int i = 0; i < settings.time; i++) {
             sleep(settings.peroid);
         }
@@ -186,6 +206,7 @@ void CrossCommunicationStateMachine(void *state_ptr, void *state_ptr2) {
         L2->trafficDirection = TrafficLogicNodeL2(L2);
         StateOutput(L1->trafficDirection, &L1->outputL1);
         StateOutput(L2->trafficDirection, &L2->outputL2);
+        TrafficLightTransition(light, i, settings.time - 3, 2);
         for (int i = 0; i < settings.time; i++) {
             sleep(settings.peroid);
             if (L1->train_detected) {
@@ -204,12 +225,14 @@ void NoControllerStateMachine(void *state_ptr, void *inputs) {
     if (light->train_detected) {
         light->trafficDirection = TrainLogicNode(light);
         StateOutput(light->trafficDirection, &light->outputL1);
+        TrafficLightTransition(light, i, settings.time - 3, 2);
         for (int i = 0; i < settings.time; i++) {
             sleep(settings.peroid);
         }
     } else {
         light->trafficDirection = TrafficLogicNode(light);
         StateOutput(light->trafficDirection, &light->outputL1);
+        TrafficLightTransition(light, i, settings.time - 3, 2);
         for (int i = 0; i < settings.time; i++) {
             sleep(settings.peroid);
             if (light->train_detected) {
