@@ -26,6 +26,7 @@ typedef struct {
 // The functions do not lock again internally.
 void TrainStateLogic(TrainData *trainData);
 void TrainLogicNode(void *state_ptr, void *inputs);
+void *TrainLogicThread(void *state_ptr);
 
 int main(void) {
     // Initialize the train data
@@ -66,6 +67,13 @@ int main(void) {
         usleep(500000); // 500 ms
     }
 }
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Code below is for the train logic node, which is separate from the controller and traffic light nodes.
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
 
 void TrainStateLogic(TrainData *trainData) {
     // Implement the logic to update the train state based on detection and hardware status

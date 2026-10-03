@@ -2,9 +2,13 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
+#include <unistd.h> /* sleep() */
 #include <sys/iofunc.h>
 #include <sys/netmgr.h>
-
+#include <sys/neutrino.h> /* struct _pulse */
+#ifndef BUF_SIZE
+#define BUF_SIZE 100
+#endif
 // State Machine Structure
 typedef struct {
     int time;
@@ -16,18 +20,59 @@ typedef enum {
     TRAFFIC_RED
 } TrafficLightState;
 typedef enum {
-    NS, // North-South
-    EW, // East-West
-    NW, // North-West
-    WS, // West-South
-    EN, // East-North
-    SE, // South-East
+    // North_South
+    STATE_NS_SN_Left_NS_Right_NS = 0,
+    STATE_NS_SN_NE_Left_NS = 1,
+    STATE_NS_SN_SW_Right_NS = 2,
+    STATE_NS_SN_NE_SW = 3,
+    // West_South
+    STATE_NE_SW_WS_WN = 4,
+    STATE_WS_SW_WN_WE = 5,
+    STATE_SW_WS_WN_Right_NS = 6,
+    STATE_SW_WS_WE_Top_EW = 7,
+    STATE_SW_WS_Top_EW_Right_NS = 8,
+    // North_West
+    STATE_NW_WN_NS_NE = 9,
+    STATE_NW_WN_NE_ES = 10,
+    STATE_NW_WN_NE_Bottom_EW = 11,
+    STATE_NW_WN_NS_Right_NS = 12,
+    STATE_NW_WN_Bottom_EW_Right_NS = 13,
+    // East_West
+    STATE_EW_WE_WN_ES = 14,
+    STATE_EW_WE_WN_Bottom_EW = 15,
+    STATE_EW_WE_ES_Top_EW = 16,
+    STATE_EW_WE_Top_EW_Bottom_EW = 17,
+    // East_North
+    STATE_NE_ES_EN_SW = 18,
+    STATE_NE_ES_EN_EW = 19,
+    STATE_NE_ES_EN_Bottom_EW = 20,
+    STATE_NE_EW_EN_Bottom_EW = 21,
+    STATE_NE_Top_EW_EN_Bottom_EW = 22,
+    // South_East
+    STATE_ES_SE_SW_WN = 23,
+    STATE_ES_SE_SW_SN = 24,
+    STATE_ES_SE_SW_Bottom_EW = 25,
+    STATE_ES_SE_SN_Bottom_EW = 26,
+    STATE_ES_SE_Top_EW_Bottom_EW = 27,
+    // No movements permitted
+    STATE_ALL_RED = 28,
+    /* Already returned by your selector; missing from the original enum. */
+    STATE_NE_ES_EN_Left_NS = 29,
+    STATE_NE_EN_Bottom_EW_Left_NS = 30,
+    STATE_ES_SE_SW_Top_EW = 31,
+    STATE_ES_SE_SN_Left_NS = 32,
+    STATE_ES_SE_Top_EW_Left_NS = 33
 } TrafficState;
 typedef enum {
-    NS, // North-South
-    NW, // North-West
-    WS, // West-South
-} TrainState;
+    NS = 0,
+    EW = 1,
+    NW = 2,
+    WS = 3,
+    EN = 4,
+    SE = 5
+} TrafficStates;
+/* Reuse the direction constants; C cannot declare NS/NW/WS twice. */
+typedef TrafficStates TrainState;
 typedef struct {
     int NE, NS, NW;
     int EN, ES, EW;
@@ -43,6 +88,8 @@ typedef struct {
 typedef struct {
     TrafficLightState trafficState;   // Shows the current light that traffic is on
     TrafficState trafficDirection;    // The Current State direction of the traffic light
+    TrafficStates trafficDirectionNext; // Direction group for local cycling
+    TrafficStates trainDirectionNext;          // The Next State direction of the train
     TrafficState controllerDirection; // Recieved traffic controller from the controller
     TrainState trainDirection;          // The state of the train direction
     Movements outputL1;               // Ouput data to the traffic light L1
@@ -52,902 +99,377 @@ typedef struct {
     int stateChange;
 } TrafficLight;
 
-// Pedestrian Structure
-typedef struct {
-	struct _pulse hdr;  // Our real data comes after this header
-	int ClientID;       // our data (unique id from client)vv
-    int LNS; 			// LeftNorthSouth
-    int RNS;			// RightNorthSouth
-    int TEW;			// TopEastWest
-    int BEW;			// BottomEastWest
-} Pedstrian_server_data;
-typedef struct {
-	struct _pulse hdr;  // Our real data comes after this header
-    char buf[BUF_SIZE]; // Message we send back to clients to tell them the messages was processed correctly.
-} Pedstrian_server_reply;
-typedef struct {
-	struct _pulse hdr;  // Our real data comes after this header
-	int ClientID;       // our data (unique id from client)vv
-    int LNS; 			// LeftNorthSouth
-    int RNS;			// RightNorthSouth
-    int TEW;			// TopEastWest
-    int BEW;			// BottomEastWest
-    int time
-    int peroid;
-    int stateChange;    // See if states have changed
-} Pedstrian_client_data;
-typedef struct {
-	struct _pulse hdr;  // Our real data comes after this header
-    char buf[BUF_SIZE]; // Message we send back to clients to tell them the messages was processed correctly.
-} Pedstrian_client_reply;
-
-// Traffic light L2 Structure
-
-typedef struct {
-	struct _pulse hdr;  // Our real data comes after this header
-	int ClientID;       // our data (unique id from client)vv
-    int NE, NS, NW;
-    int EN, ES, EW;
-    int SN, SE, SW;
-    int WN, WE, WS;
-    int Left_NS, Right_NS;
-    int Top_EW, Bottom_EW;
-    int time
-    int peroid;
-    int stateChange;    // See if states have changed
-} L2_server_data;
-typedef struct {
-	struct _pulse hdr;  // Our real data comes after this header
-    char buf[BUF_SIZE]; // Message we send back to clients to tell them the messages was processed correctly.
-} L2_server_reply;
-typedef struct {
-	struct _pulse hdr;  // Our real data comes after this header
-	int ClientID;       // our data (unique id from client)vv
-    int LNS; 			// LeftNorthSouth
-    int RNS;			// RightNorthSouth
-    int TEW;			// TopEastWest
-    int BEW;			// BottomEastWest
-} L2_client_data;
-typedef struct {
-	struct _pulse hdr;  // Our real data comes after this header
-    char buf[BUF_SIZE]; // Message we send back to clients to tell them the messages was processed correctly.
-} L2_client_reply;
-
 
 // Global variables
 Settings settings = {0};
 int train_detected = 0; // Flag to indicate if a train is detected
 int train_state = 0; // Flag to indicate if state machine should remain at train state
-
 // Function prototypes
-void TrafficLogicNode(void *state_ptr, void *inputs);
-void TrafficLogicNodeL2(void *state_ptr, void *inputs);
-void TrainLogicNode(void *state_ptr, void *inputs);
+TrafficState TrafficLogicNode(void *state_ptr);
+TrafficState TrafficLogicNodeL2(void *state_ptr);
+TrafficState TrainLogicNode(void *state_ptr);
 void ControllerStateMachine(void *state_ptr, void *inputs);
 void CrossCommunicationStateMachine(void *state_ptr, void *inputs);
 void NoControllerStateMachine(void *state_ptr, void *inputs);
-int server_PedestrianL1();
+void StateOutput(TrafficState state, Movements *output);
+#ifndef SAMPLECODE_NO_MAIN
+int main(void) {
+    TrafficLight light = {
+        .trafficState = TRAFFIC_GREEN,
+        .trafficDirection = STATE_NS_SN_NE_SW,
+        .trafficDirectionNext = NS,
+        .trainDirectionNext = NS,
+        .controllerDirection = STATE_NS_SN_Left_NS_Right_NS,
+        .trainDirection = NS
+    };
+    /* Example timing: original zero values made the loops run without waiting. */
+    settings.time = 5;
+    settings.peroid = 1;
 
-int main() {
-    // Initialize the traffic light state
-    TrafficLight light = {TRAFFIC_GREEN, NS, {0}, {0}, 0};
+    while (1) {
+        if (controllerConnected) {
+            ControllerStateMachine(&light, NULL);
+        } else if (L2Connected) {
+            CrossCommunicationStateMachine(&light, &L2);
+        } else {
+            NoControllerStateMachine(&light, NULL);
+        }
+    }
 
-    pthread_t  th1;
-	void *retval;
-
-	// Create and start the thread
-	pthread_create (&th1, NULL, server_PedestrianL1, NULL);
-
-
-	pthread_join (th1, &retval);
-
+    /* server_PedestrianL1 was declared but not supplied, so it cannot be linked.
+     * Run your existing local loop directly until you add the server body.
+     * To run controller mode instead, replace this call with:
+     * ControllerStateMachine(&light, NULL);
+     */
+    NoControllerStateMachine(&light, NULL);
     return 0;
 }
+#endif
 
 void ControllerStateMachine(void *state_ptr, void *inputs) {
     // Implement the controller state machine logic here
     // This function will manage the traffic light states based on inputs and timing
-    struct TrafficLight light = *(struct TrafficLight *)state_ptr;
-    while (1) {
-        int train_detected 
+    TrafficLight *light = state_ptr;
+    (void)inputs;
+    if (light->train_detected) {
+        light->trafficDirection = TrainLogicNode(light);
+        StateOutput(light->trafficDirection, &light->outputL1);
         for (int i = 0; i < settings.time; i++) {
             sleep(settings.peroid);
-            if (train_detected) {
+        }
+    } else {
+        light->trafficDirection = light->controllerDirection;
+        StateOutput(light->trafficDirection, &light->outputL1);
+        for (int i = 0; i < settings.time; i++) {
+            sleep(settings.peroid);
+            if (light->train_detected) {
                 break; // Exit the loop if a train is detected
             }
-        }
-        if (train_state) {
-            TrainLogicNode(state_ptr, inputs);
-        } else {
-            light.trafficDirection = light.controllerDirection;
-            TrafficLogicNode(state_ptr, inputs);
         }
     }
 }
 
-void CrossCommunicationStateMachine(void *state_ptr, void *inputs) {
+void CrossCommunicationStateMachine(void *state_ptr, void *state_ptr2) {
     // Implement the cross-communication state machine logic here
     // This function will handle communication between different traffic light nodes
-    struct TrafficLight light = *(struct TrafficLight *)state_ptr;
-    while (1) {
+    TrafficLight *L1 = state_ptr;
+    TrafficLight *L2 = state_ptr2;
+    L2->trafficDirectionNext = L1->trafficDirectionNext; // Synchronize L2 with L1
+    if (L1->train_detected) {
+        L1->trafficDirection = TrainLogicNode(L1);
+        StateOutput(L1->trafficDirection, &L1->outputL1);
         for (int i = 0; i < settings.time; i++) {
             sleep(settings.peroid);
-            if (train_detected) {
+        }
+    } else {
+        L1->trafficDirection = TrafficLogicNode(L1);
+        L2->trafficDirection = TrafficLogicNodeL2(L2);
+        StateOutput(L1->trafficDirection, &L1->outputL1);
+        StateOutput(L2->trafficDirection, &L2->outputL2);
+        for (int i = 0; i < settings.time; i++) {
+            sleep(settings.peroid);
+            if (L1->train_detected) {
                 break; // Exit the loop if a train is detected
             }
         }
-        if (train_state) {
-            TrainLogicNode(state_ptr, inputs);
-        } else {
-            TrafficLogicNode(state_ptr, inputs);
-            TrafficLogicNodeL2(state_ptr, inputs);
-        }
+        /* Advance after using this group; wrap SE back to NS. */
+        L1->trafficDirectionNext = (TrafficStates)((L1->trafficDirectionNext + 1) % 6);
     }
 }
-
 void NoControllerStateMachine(void *state_ptr, void *inputs) {
     // Implement the no-controller state machine logic here
     // This function will handle the traffic light behavior when there is no controller
-    enum TrafficLight light = *(TrafficLight *)state_ptr;
-    while (1) {
+    TrafficLight *light = state_ptr;
+    (void)inputs;
+    if (light->train_detected) {
+        light->trafficDirection = TrainLogicNode(light);
+        StateOutput(light->trafficDirection, &light->outputL1);
         for (int i = 0; i < settings.time; i++) {
             sleep(settings.peroid);
-            if (train_detected) {
+        }
+    } else {
+        light->trafficDirection = TrafficLogicNode(light);
+        StateOutput(light->trafficDirection, &light->outputL1);
+        for (int i = 0; i < settings.time; i++) {
+            sleep(settings.peroid);
+            if (light->train_detected) {
                 break; // Exit the loop if a train is detected
             }
         }
-        if (train_state) {
-            TrainLogicNode(state_ptr, inputs);
-        } else {
-            TrafficLogicNode(state_ptr, inputs);
+        /* Advance after using this group; wrap SE back to NS. */
+        light->trafficDirectionNext = (TrafficStates)((light->trafficDirectionNext + 1) % 6);
         }
-    }
+
 }
-
-void TrafficLogicNode(void *state_ptr, void *inputs) {
-
-    enum TrafficLight light = *(TrafficLight *)state_ptr;
-
-    while (1) {
-        // Simulate traffic light state changes
-        switch (light.trafficDirection) {
-            case NS:
-                if (light.button.Right_NS) {
-                    light.outputL1.NE = 0;
-                    light.outputL1.Right_NS = 1;
-                } else {
-                    light.outputL1.NE = 1;
-                    light.outputL1.Right_NS = 0;
-                }
-                light.outputL1.NS = 1;
-                light.outputL1.NW = 0;
-                light.outputL1.EN = 0;
-                light.outputL1.ES = 0;
-                light.outputL1.EW = 0;
-                light.outputL1.SN = 1;
-                light.outputL1.SE = 0;
-                if (light.button.Left_NS) {
-                    light.outputL1.SW = 0;
-                    light.outputL1.Left_NS = 1;
-                } else {
-                    light.outputL1.SW = 1;
-                    light.outputL1.Left_NS = 0;
-                }
-                light.outputL1.WN = 0;
-                light.outputL1.WE = 0;
-                light.outputL1.WS = 0;
-                light.outputL1.Top_EW = 0;
-                light.outputL1.Bottom_EW = 0;
-                break;
-            case EW:
-                light.outputL1.NE = 0;
-                light.outputL1.NS = 0;
-                light.outputL1.NW = 0;
-                light.outputL1.EN = 0;
-                if (light.button.Bottom_EW) {
-                    light.outputL1.ES = 0;
-                    light.outputL1.Bottom_EW = 1;
-                } else {
-                    light.outputL1.ES = 1;
-                    light.outputL1.Bottom_EW = 0;
-                }
-                light.outputL1.EW = 1;
-                light.outputL1.SN = 0;
-                light.outputL1.SE = 0;
-                light.outputL1.SW = 0;
-                if (light.button.Top_EW) {
-                    light.outputL1.WN = 0;
-                    light.outputL1.Top_EW = 1;
-                } else {
-                    light.outputL1.WN = 1;
-                    light.outputL1.Top_EW = 0;
-                }
-                light.outputL1.WE = 1;
-                light.outputL1.WS = 0;
-                light.outputL1.Left_NS = 0;
-                light.outputL1.Right_NS = 0;
-                break;
-            case NW:
-                if (light.button.Right_NS) {
-                    light.outputL1.NE = 0;
-                    light.outputL1.Right_NS = 1;
-                } else {
-                    light.outputL1.NE = 1;
-                    light.outputL1.Right_NS = 0;
-                }
-                if (light.button.Bottom_NS) {
-                    light.outputL1.NS = 0;
-                    light.outputL1.Bottom_NS = 1;
-                } else {
-                    light.outputL1.NS = 1;
-                    light.outputL1.Bottom_NS = 0;
-                }
-                light.outputL1.NW = 1;
-                light.outputL1.EN = 0;
-                light.outputL1.ES = 0;
-                light.outputL1.EW = 0;
-                light.outputL1.SN = 0;
-                light.outputL1.SE = 0;
-                light.outputL1.SW = 0;
-                light.outputL1.WN = 1;
-                light.outputL1.WE = 0;
-                light.outputL1.WS = 0;
-                light.outputL1.Left_NS = 0;
-                light.outputL1.Top_EW = 0;
-                break;
-            case WS:
-                light.outputL1.NE = 0;
-                light.outputL1.NS = 0;
-                light.outputL1.NW = 0;
-                light.outputL1.EN = 0;
-                light.outputL1.ES = 0;
-                light.outputL1.EW = 0;
-                light.outputL1.SN = 0;
-                light.outputL1.SE = 0;
-                light.outputL1.SW = 1;
-                if (light.button.Top_EW) {
-                    light.outputL1.WN = 0;
-                    light.outputL1.Top_EW = 1;
-                } else {
-                    light.outputL1.WN = 1;
-                    light.outputL1.Top_EW = 0;
-                }
-                if (light.button.Right_NS) {
-                    light.outputL1.WE = 0;
-                    light.outputL1.Right_NS = 1;
-                } else {
-                    light.outputL1.WE = 1;
-                    light.outputL1.Right_NS = 0;
-                }
-                light.outputL1.WS = 1;
-                light.outputL1.Left_NS = 0;
-                light.outputL1.Bottom_EW = 0;
-                break;
-            case EN:
-                light.outputL1.NE = 1;
-                light.outputL1.NS = 0;
-                light.outputL1.NW = 0;
-                light.outputL1.EN = 1;
-                if (light.button.Bottom_EW) {
-                    light.outputL1.ES = 0;
-                    light.outputL1.Bottom_EW = 1;
-                } else {
-                    light.outputL1.ES = 1;
-                    light.outputL1.Bottom_EW = 0;
-                }
-                if (light.button.Left_NS) {
-                    light.outputL1.EW = 0;
-                    light.outputL1.Left_NS = 1;
-                } else {
-                    light.outputL1.EW = 1;
-                    light.outputL1.Left_NS = 0;
-                }
-                light.outputL1.SN = 0;
-                light.outputL1.SE = 0;
-                light.outputL1.SW = 0;
-                light.outputL1.WN = 0;
-                light.outputL1.WE = 0;
-                light.outputL1.WS = 0;
-                light.outputL1.Top_EW = 0;
-                light.outputL1.Right_NS = 0;
-                break;
-            case SE:
-                light.outputL1.NE = 0;
-                light.outputL1.NS = 0;
-                light.outputL1.NW = 0;
-                light.outputL1.EN = 0;
-                light.outputL1.ES = 1;
-                light.outputL1.EW = 0;
-                if (light.button.Top_EW) {
-                    light.outputL1.SN = 0;
-                    light.outputL1.Top_EW = 1;
-                } else {
-                    light.outputL1.SN = 1;
-                    light.outputL1.Top_EW = 0;
-                }
-                light.outputL1.SE = 1;
-                if (light.button.Left_NS) {
-                    light.outputL1.SW = 0;
-                    light.outputL1.Left_NS = 1;
-                } else {
-                    light.outputL1.SW = 1;
-                    light.outputL1.Left_NS = 0;
-                }
-                light.outputL1.WN = 0;
-                light.outputL1.WE = 0;
-                light.outputL1.WS = 0;
-                light.outputL1.Bottom_EW = 0;
-                light.outputL1.Right_NS = 0;
-                break;
-            default:
-                light.outputL1.NE = 0;
-                light.outputL1.NS = 0;
-                light.outputL1.NW = 0;
-                light.outputL1.EN = 0;
-                light.outputL1.ES = 0;
-                light.outputL1.EW = 0;
-                light.outputL1.SN = 0;
-                light.outputL1.SE = 0;
-                light.outputL1.SW = 0;
-                light.outputL1.WN = 0;
-                light.outputL1.WE = 0;
-                light.outputL1.WS = 0;
-                light.outputL1.Left_NS = 0;
-                light.outputL1.Right_NS = 0;
-                light.outputL1.Top_EW = 0;
-                light.outputL1.Bottom_EW = 0;
-                break;
-        }
-    }
-}
-
-void TrafficLogicNodeL2(void *state_ptr, void *inputs) {
-
-    enum TrafficLight light = *(TrafficLight *)state_ptr;
-
-    while (1) {
-        // Simulate traffic light state changes
-        switch (light.trafficDirection) {
-            case NS:
-                if (light.button.Right_NS) {
-                    light.outputL2.NE = 0;
-                    light.outputL2.Right_NS = 1;
-                } else {
-                    light.outputL2.NE = 1;
-                    light.outputL2.Right_NS = 0;
-                }
-                light.outputL2.NS = 1;
-                light.outputL2.NW = 0;
-                light.outputL2.EN = 0;
-                light.outputL2.ES = 0;
-                light.outputL2.EW = 0;
-                light.outputL2.SN = 1;
-                light.outputL2.SE = 0;
-                if (light.button.Left_NS) {
-                    light.outputL2.SW = 0;
-                    light.outputL2.Left_NS = 1;
-                } else {
-                    light.outputL2.SW = 1;
-                    light.outputL2.Left_NS = 0;
-                }
-                light.outputL2.WN = 0;
-                light.outputL2.WE = 0;
-                light.outputL2.WS = 0;
-                light.outputL2.Top_EW = 0;
-                light.outputL2.Bottom_EW = 0;
-                break;
-            case EW:
-                light.outputL2.NE = 0;
-                light.outputL2.NS = 0;
-                light.outputL2.NW = 0;
-                light.outputL2.EN = 0;
-                if (light.button.Bottom_EW) {
-                    light.outputL2.ES = 0;
-                    light.outputL2.Bottom_EW = 1;
-                } else {
-                    light.outputL2.ES = 1;
-                    light.outputL2.Bottom_EW = 0;
-                }
-                light.outputL2.EW = 1;
-                light.outputL2.SN = 0;
-                light.outputL2.SE = 0;
-                light.outputL2.SW = 0;
-                if (light.button.Top_EW) {
-                    light.outputL2.WN = 0;
-                    light.outputL2.Top_EW = 1;
-                } else {
-                    light.outputL2.WN = 1;
-                    light.outputL2.Top_EW = 0;
-                }
-                light.outputL2.WE = 1;
-                light.outputL2.WS = 0;
-                light.outputL2.Left_NS = 0;
-                light.outputL2.Right_NS = 0;
-                break;
-            case NW:
-                if (light.button.Right_NS) {
-                    light.outputL2.NE = 0;
-                    light.outputL2.Right_NS = 1;
-                } else {
-                    light.outputL2.NE = 1;
-                    light.outputL2.Right_NS = 0;
-                }
-                if (light.button.Bottom_NS) {
-                    light.outputL2.NS = 0;
-                    light.outputL2.Bottom_NS = 1;
-                } else {
-                    light.outputL2.NS = 1;
-                    light.outputL2.Bottom_NS = 0;
-                }
-                light.outputL2.NW = 1;
-                light.outputL2.EN = 0;
-                light.outputL2.ES = 0;
-                light.outputL2.EW = 0;
-                light.outputL2.SN = 0;
-                light.outputL2.SE = 0;
-                light.outputL2.SW = 0;
-                light.outputL2.WN = 1;
-                light.outputL2.WE = 0;
-                light.outputL2.WS = 0;
-                light.outputL2.Left_NS = 0;
-                light.outputL2.Top_EW = 0;
-                break;
-            case WS:
-                light.outputL2.NE = 0;
-                light.outputL2.NS = 0;
-                light.outputL2.NW = 0;
-                light.outputL2.EN = 0;
-                light.outputL2.ES = 0;
-                light.outputL2.EW = 0;
-                light.outputL2.SN = 0;
-                light.outputL2.SE = 0;
-                light.outputL2.SW = 1;
-                if (light.button.Top_EW) {
-                    light.outputL2.WN = 0;
-                    light.outputL2.Top_EW = 1;
-                } else {
-                    light.outputL2.WN = 1;
-                    light.outputL2.Top_EW = 0;
-                }
-                if (light.button.Right_NS) {
-                    light.outputL2.WE = 0;
-                    light.outputL2.Right_NS = 1;
-                } else {
-                    light.outputL2.WE = 1;
-                    light.outputL2.Right_NS = 0;
-                }
-                light.outputL2.WS = 1;
-                light.outputL2.Left_NS = 0;
-                light.outputL2.Bottom_EW = 0;
-                break;
-            case EN:
-                light.outputL2.NE = 1;
-                light.outputL2.NS = 0;
-                light.outputL2.NW = 0;
-                light.outputL2.EN = 1;
-                if (light.button.Bottom_EW) {
-                    light.outputL2.ES = 0;
-                    light.outputL2.Bottom_EW = 1;
-                } else {
-                    light.outputL2.ES = 1;
-                    light.outputL2.Bottom_EW = 0;
-                }
-                if (light.button.Left_NS) {
-                    light.outputL2.EW = 0;
-                    light.outputL2.Left_NS = 1;
-                } else {
-                    light.outputL2.EW = 1;
-                    light.outputL2.Left_NS = 0;
-                }
-                light.outputL2.SN = 0;
-                light.outputL2.SE = 0;
-                light.outputL2.SW = 0;
-                light.outputL2.WN = 0;
-                light.outputL2.WE = 0;
-                light.outputL2.WS = 0;
-                light.outputL2.Top_EW = 0;
-                light.outputL2.Right_NS = 0;
-                break;
-            case SE:
-                light.outputL2.NE = 0;
-                light.outputL2.NS = 0;
-                light.outputL2.NW = 0;
-                light.outputL2.EN = 0;
-                light.outputL2.ES = 1;
-                light.outputL2.EW = 0;
-                if (light.button.Top_EW) {
-                    light.outputL2.SN = 0;
-                    light.outputL2.Top_EW = 1;
-                } else {
-                    light.outputL2.SN = 1;
-                    light.outputL2.Top_EW = 0;
-                }
-                light.outputL2.SE = 1;
-                if (light.button.Left_NS) {
-                    light.outputL2.SW = 0;
-                    light.outputL2.Left_NS = 1;
-                } else {
-                    light.outputL2.SW = 1;
-                    light.outputL2.Left_NS = 0;
-                }
-                light.outputL2.WN = 0;
-                light.outputL2.WE = 0;
-                light.outputL2.WS = 0;
-                light.outputL2.Bottom_EW = 0;
-                light.outputL2.Right_NS = 0;
-                break;
-            default:
-                light.outputL2.NE = 0;
-                light.outputL2.NS = 0;
-                light.outputL2.NW = 0;
-                light.outputL2.EN = 0;
-                light.outputL2.ES = 0;
-                light.outputL2.EW = 0;
-                light.outputL2.SN = 0;
-                light.outputL2.SE = 0;
-                light.outputL2.SW = 0;
-                light.outputL2.WN = 0;
-                light.outputL2.WE = 0;
-                light.outputL2.WS = 0;
-                light.outputL2.Left_NS = 0;
-                light.outputL2.Right_NS = 0;
-                light.outputL2.Top_EW = 0;
-                light.outputL2.Bottom_EW = 0;
-                break;
-        }
-    }
-}
-
-void TrainLogicNode(void *state_ptr, void *inputs) {
-
-    enum TrafficLight light = *(TrafficLight *)state_ptr;
-
-    switch (light.trainDirection) {
+static TrafficState SelectTrafficState(int direction, int Left_NS, int Right_NS,int Top_EW, int Bottom_EW) {
+    switch (direction) {
         case NS:
-            if (light.button.Right_NS) {
-                light.output.NE = 0;
-                light.output.Right_NS = 1;
-            } else {
-                light.output.NE = 1;
-                light.output.Right_NS = 0;
-            }
-            light.output.NS = 1;
-            light.output.NW = 0;
-            light.output.EN = 0;
-            light.output.ES = 0;
-            light.output.EW = 0;
-            light.output.SN = 1;
-            light.output.SE = 0;
-            if (light.button.Left_NS) {
-                light.output.SW = 0;
-                light.output.Left_NS = 1;
-            } else {
-                light.output.SW = 1;
-                light.output.Left_NS = 0;
-            }
-            light.output.WN = 0;
-            light.output.WE = 0;
-            light.output.WS = 0;
-            light.output.Top_EW = 0;
-            light.output.Bottom_EW = 0;
-            break;
+            if (Left_NS && Right_NS)
+                return STATE_NS_SN_Left_NS_Right_NS;
+            if (Left_NS)
+                return STATE_NS_SN_NE_Left_NS;
+            if (Right_NS)
+                return STATE_NS_SN_SW_Right_NS;
+            return STATE_NS_SN_NE_SW;
+        case EW:
+            if (Top_EW && Bottom_EW)
+                return STATE_EW_WE_Top_EW_Bottom_EW;
+            if (Top_EW)
+                return STATE_EW_WE_ES_Top_EW;
+            if (Bottom_EW)
+                return STATE_EW_WE_WN_Bottom_EW;
+            return STATE_EW_WE_WN_ES;
         case NW:
-            if (light.button.Right_NS) {
-                light.output.NE = 0;
-                light.output.Right_NS = 1;
-            } else {
-                light.output.NE = 1;
-                light.output.Right_NS = 0;
-            }
-            if (light.button.Bottom_NS) {
-                light.output.NS = 0;
-                light.output.Bottom_NS = 1;
-            } else {
-                light.output.NS = 1;
-                light.output.Bottom_NS = 0;
-            }
-            light.output.NW = 1;
-            light.output.EN = 0;
-            light.output.ES = 0;
-            light.output.EW = 0;
-            light.output.SN = 0;
-            light.output.SE = 0;
-            light.output.SW = 0;
-            light.output.WN = 1;
-            light.output.WE = 0;
-            light.output.WS = 0;
-            light.output.Left_NS = 0;
-            light.output.Top_EW = 0;
+            if (Right_NS && Bottom_EW)
+                return STATE_NW_WN_Bottom_EW_Right_NS;
+            if (Right_NS)
+                return STATE_NW_WN_NS_Right_NS;
+            if (Bottom_EW)
+                return STATE_NW_WN_NE_Bottom_EW;
+            return STATE_NW_WN_NS_NE;
         case WS:
-            light.output.NE = 0;
-            light.output.NS = 0;
-            light.output.NW = 0;
-            light.output.EN = 0;
-            light.output.ES = 0;
-            light.output.EW = 0;
-            light.output.SN = 0;
-            light.output.SE = 0;
-            light.output.SW = 1;
-            if (light.button.Top_EW) {
-                light.output.WN = 0;
-                light.output.Top_EW = 1;
-            } else {
-            light.output.WN = 1;
-                light.output.Top_EW = 0;
-            }
-            if (light.button.Right_NS) {
-                light.output.WE = 0;
-                light.output.Right_NS = 1;
-            } else {
-                light.output.WE = 1;
-                light.output.Right_NS = 0;
-            }
-            light.output.WS = 1;
-            light.output.Left_NS = 0;
-            light.output.Bottom_EW = 0;
-            break;
+            if (Top_EW && Right_NS)
+                return STATE_SW_WS_Top_EW_Right_NS;
+            if (Top_EW)
+                return STATE_SW_WS_WE_Top_EW;
+            if (Right_NS)
+                return STATE_SW_WS_WN_Right_NS;
+            return STATE_WS_SW_WN_WE;
+        case EN:
+            if (Bottom_EW && Left_NS)
+                return STATE_NE_EN_Bottom_EW_Left_NS;
+            if (Bottom_EW)
+                return STATE_NE_EW_EN_Bottom_EW;
+            if (Left_NS)
+                return STATE_NE_ES_EN_Left_NS;
+            return STATE_NE_ES_EN_EW;
+        case SE:
+            if (Top_EW && Left_NS)
+                return STATE_ES_SE_Top_EW_Left_NS;
+            if (Top_EW)
+                return STATE_ES_SE_SW_Top_EW;
+            if (Left_NS)
+                return STATE_ES_SE_SN_Left_NS;
+            return STATE_ES_SE_SW_SN;
         default:
-            light.output.NE = 0;
-            light.output.NS = 0;
-            light.output.NW = 0;
-            light.output.EN = 0;
-            light.output.ES = 0;
-            light.output.EW = 0;
-            light.output.SN = 0;
-            light.output.SE = 0;
-            light.output.SW = 0;
-            light.output.WN = 0;
-            light.output.WE = 0;
-            light.output.WS = 0;
-            light.output.Left_NS = 0;
-            light.output.Right_NS = 0;
-            light.output.Top_EW = 0;
-            light.output.Bottom_EW = 0;
+            return STATE_ALL_RED;
+    }
+}
+// Calculates once and returns. Does not change light or any output fields.
+TrafficState TrafficLogicNode(void *state_ptr) {
+    const TrafficLight *light = state_ptr;
+    if (!light) return STATE_ALL_RED;
+    return SelectTrafficState(light->trafficDirectionNext, light->buttons.Left_NS, light->buttons.Right_NS, light->buttons.Top_EW, light->buttons.Bottom_EW);
+}
+/* Missing L2 wrapper: use the same selector with L2's own data. */
+TrafficState TrafficLogicNodeL2(void *state_ptr) {
+    return TrafficLogicNode(state_ptr);
+}
+// This is the uploaded traffic-route selector using trainDirection,
+// not the separate TrainData/boom-gate TrainLogicNode from the train node.
+TrafficState TrainLogicNode(void *state_ptr) {
+    const TrafficLight *light = state_ptr;
+    if (!light) return STATE_ALL_RED;
+    switch (light->trainDirection) {
+        case NS:
+        case NW:
+        case WS:
+            return SelectTrafficState(light->trainDirection, light->buttons.Left_NS, light->buttons.Right_NS, light->buttons.Top_EW, light->buttons.Bottom_EW);
+        default:
+            return STATE_ALL_RED;
+    }
+}
+void StateOutput(TrafficState state, Movements *output) {
+    if (output == NULL) {
+        return;
+    }
+    *output = (Movements){0}; /* Clear ALL_RED/default as well. */
+    switch (state) {
+        // North-South routes
+        case STATE_NS_SN_Left_NS_Right_NS:
+            *output = (Movements){
+                .NS = 1, .SN = 1, .Left_NS = 1, .Right_NS = 1
+            };
+            break;
+        case STATE_NS_SN_NE_Left_NS:
+            *output = (Movements){
+                .NS = 1, .SN = 1, .NE = 1, .Left_NS = 1
+            };
+            break;
+        case STATE_NS_SN_SW_Right_NS:
+            *output = (Movements){
+                .NS = 1, .SN = 1, .SW = 1, .Right_NS = 1
+            };
+            break;
+        case STATE_NS_SN_NE_SW:
+            *output = (Movements){
+                .NS = 1, .SN = 1, .NE = 1, .SW = 1
+            };
+            break;
+        // West-South routes
+        case STATE_NE_SW_WS_WN:
+            *output = (Movements){
+                .NE = 1, .SW = 1, .WS = 1, .WN = 1
+            };
+            break;
+        case STATE_WS_SW_WN_WE:
+            *output = (Movements){
+                .WS = 1, .SW = 1, .WN = 1, .WE = 1
+            };
+            break;
+        case STATE_SW_WS_WN_Right_NS:
+            *output = (Movements){
+                .SW = 1, .WS = 1, .WN = 1, .Right_NS = 1
+            };
+            break;
+        case STATE_SW_WS_WE_Top_EW:
+            *output = (Movements){
+                .SW = 1, .WS = 1, .WE = 1, .Top_EW = 1
+            };
+            break;
+        case STATE_SW_WS_Top_EW_Right_NS:
+            *output = (Movements){
+                .SW = 1, .WS = 1, .Top_EW = 1, .Right_NS = 1
+            };
+            break;
+        // North-West routes
+        case STATE_NW_WN_NS_NE:
+            *output = (Movements){
+                .NW = 1, .WN = 1, .NS = 1, .NE = 1
+            };
+            break;
+        case STATE_NW_WN_NE_ES:
+            *output = (Movements){
+                .NW = 1, .WN = 1, .NE = 1, .ES = 1
+            };
+            break;
+        case STATE_NW_WN_NE_Bottom_EW:
+            *output = (Movements){
+                .NW = 1, .WN = 1, .NE = 1, .Bottom_EW = 1
+            };
+            break;
+        case STATE_NW_WN_NS_Right_NS:
+            *output = (Movements){
+                .NW = 1, .WN = 1, .NS = 1, .Right_NS = 1
+            };
+            break;
+        case STATE_NW_WN_Bottom_EW_Right_NS:
+            *output = (Movements){
+                .NW = 1, .WN = 1, .Bottom_EW = 1, .Right_NS = 1
+            };
+            break;
+        // East-West routes
+        case STATE_EW_WE_WN_ES:
+            *output = (Movements){
+                .EW = 1, .WE = 1, .WN = 1, .ES = 1
+            };
+            break;
+        case STATE_EW_WE_WN_Bottom_EW:
+            *output = (Movements){
+                .EW = 1, .WE = 1, .WN = 1, .Bottom_EW = 1
+            };
+            break;
+        case STATE_EW_WE_ES_Top_EW:
+            *output = (Movements){
+                .EW = 1, .WE = 1, .ES = 1, .Top_EW = 1
+            };
+            break;
+        case STATE_EW_WE_Top_EW_Bottom_EW:
+            *output = (Movements){
+                .EW = 1, .WE = 1, .Top_EW = 1, .Bottom_EW = 1
+            };
+            break;
+        // East-North routes
+        case STATE_NE_ES_EN_SW:
+            *output = (Movements){
+                .NE = 1, .ES = 1, .EN = 1, .SW = 1
+            };
+            break;
+        case STATE_NE_ES_EN_EW:
+            *output = (Movements){
+                .NE = 1, .ES = 1, .EN = 1, .EW = 1
+            };
+            break;
+        case STATE_NE_ES_EN_Bottom_EW:
+            *output = (Movements){
+                .NE = 1, .ES = 1, .EN = 1, .Bottom_EW = 1
+            };
+            break;
+        case STATE_NE_EW_EN_Bottom_EW:
+            *output = (Movements){
+                .NE = 1, .EW = 1, .EN = 1, .Bottom_EW = 1
+            };
+            break;
+        case STATE_NE_Top_EW_EN_Bottom_EW:
+            *output = (Movements){
+                .NE = 1, .Top_EW = 1, .EN = 1, .Bottom_EW = 1
+            };
+            break;
+        // South-East routes
+        case STATE_ES_SE_SW_WN:
+            *output = (Movements){
+                .ES = 1, .SE = 1, .SW = 1, .WN = 1
+            };
+            break;
+        case STATE_ES_SE_SW_SN:
+            *output = (Movements){
+                .ES = 1, .SE = 1, .SW = 1, .SN = 1
+            };
+            break;
+        case STATE_ES_SE_SW_Bottom_EW:
+            *output = (Movements){
+                .ES = 1, .SE = 1, .SW = 1, .Bottom_EW = 1
+            };
+            break;
+        case STATE_ES_SE_SN_Bottom_EW:
+            *output = (Movements){
+                .ES = 1, .SE = 1, .SN = 1, .Bottom_EW = 1
+            };
+            break;
+        case STATE_ES_SE_Top_EW_Bottom_EW:
+            *output = (Movements){
+                .ES = 1, .SE = 1, .Top_EW = 1, .Bottom_EW = 1
+            };
+            break;
+        /* Missing mappings for states already used in your selector. */
+        case STATE_NE_ES_EN_Left_NS:
+            *output = (Movements){.NE = 1, .ES = 1, .EN = 1, .Left_NS = 1};
+            break;
+        case STATE_NE_EN_Bottom_EW_Left_NS:
+            *output = (Movements){.NE = 1, .EN = 1, .Bottom_EW = 1, .Left_NS = 1};
+            break;
+        case STATE_ES_SE_SW_Top_EW:
+            *output = (Movements){.ES = 1, .SE = 1, .SW = 1, .Top_EW = 1};
+            break;
+        case STATE_ES_SE_SN_Left_NS:
+            *output = (Movements){.ES = 1, .SE = 1, .SN = 1, .Left_NS = 1};
+            break;
+        case STATE_ES_SE_Top_EW_Left_NS:
+            *output = (Movements){.ES = 1, .SE = 1, .Top_EW = 1, .Left_NS = 1};
+            break;
+        case STATE_ALL_RED:
+        default:
+            // All outputs remain zero.
             break;
     }
-}
-
-/*** Server code ***/
-int server_PedestrianL1(void *state_ptr) {
-	int serverPID=0, chid=0; 	// Server PID and channel ID
-
-    struct TrafficLight light = *(TrafficLight *)state_ptr;
-
-	serverPID = getpid(); 		// get server process ID
-
-	// Create Channel
-	chid = ChannelCreate(_NTO_CHF_DISCONNECT);
-	if (chid == -1)  // _NTO_CHF_DISCONNECT flag used to allow detach
-	{
-	    printf("\nFailed to create communication channel on server\n");
-		return EXIT_FAILURE;
-	}
-
-	FILE *serverFile;
-
-	serverFile = fopen("/tmp/TrafficToPedestrian_L1.info", "w");
-
-	if (serverFile == NULL)
-	{
-	    perror("Failed to open /tmp/myServer.info");
-	    ChannelDestroy(chid);
-	    return EXIT_FAILURE;
-	}
-
-	fprintf(serverFile, "%d\n%d\n", serverPID, chid);
-
-	fclose(serverFile);
-
-	printf("Server information written to /tmp/PedestrianToTraffic_L1.info\n");
-
-	printf("Server Listening for Clients on:\n");
-	printf("These printf statements can be removed when the myServer.info file is implemented\n");
-	printf("  --> Process ID   : %d \n", serverPID);
-	printf("  --> Channel ID   : %d \n\n", chid);
-
-	/*
-	 *   Your code here to write this information to a file at a known location so a client can grab it...
-	 *
-	 *   The data should be written to a file like:
-	 *   /tmp/myServer.info
-	 *	 serverPID  (first line of file)
- 	 *	 Channel ID (second line of file)
-	 */
-
-
-	Pedstrian_server_data msg;
-	int rcvid=0, msgnum=0;  	// no message received yet
-	int Stay_alive=0, living=0;	// server stays running (ignores _PULSE_CODE_DISCONNECT request)
-
-	Pedstrian_server_reply replymsg; 			// replymsg structure for sending back to client
-	replymsg.hdr.type = 0x01;
-	replymsg.hdr.subtype = 0x00;
-	enum states CurrentState = State0;
-
-	living =1;
-	while (living)
-	{
-	   // Do your MsgReceive's here now with the chid
-	   rcvid = MsgReceive(chid, &msg, sizeof(msg), NULL);
-
-	   if (rcvid == -1)  // Error condition, exit
-	   {
-		   printf("\nFailed to MsgReceive\n");
-		   break;
-	   }
-
-	   // did we receive a Pulse or message?
-	   // for Pulses:
-	   if (rcvid == 0)  //  Pulse received, work out what type
-	   {
-		   switch (msg.hdr.code)
-		   {
-			   case _PULSE_CODE_DISCONNECT:
-					// A client disconnected all its connections by running
-					// name_close() for each name_open()  or terminated
-				   if( Stay_alive == 0)
-				   {
-					   ConnectDetach(msg.hdr.scoid);
-					   printf("\nServer was told to Detach from ClientID:%d ...\n", msg.ClientID);
-					   continue;
-				   }
-				   else
-				   {
-					   printf("\nServer received Detach pulse from ClientID:%d but rejected it ...\n", msg.ClientID);
-				   }
-				   break;
-
-			   case _PULSE_CODE_UNBLOCK:
-					// REPLY blocked client wants to unblock (was hit by a signal
-					// or timed out).  It's up to you if you reply now or later.
-				   printf("\nServer got _PULSE_CODE_UNBLOCK after %d, msgnum\n", msgnum);
-				   break;
-
-			   case _PULSE_CODE_COIDDEATH:  // from the kernel
-				   printf("\nServer got _PULSE_CODE_COIDDEATH after %d, msgnum\n", msgnum);
-				   break;
-
-			   case _PULSE_CODE_THREADDEATH: // from the kernel
-				   printf("\nServer got _PULSE_CODE_THREADDEATH after %d, msgnum\n", msgnum);
-				   break;
-
-			   default:
-				   // Some other pulse sent by one of your processes or the kernel
-				   printf("\nServer got some other pulse after %d, msgnum\n", msgnum);
-				   break;
-
-		   }
-		   continue;// go back to top of while loop
-	   }
-
-	   // for messages:
-	   if(rcvid > 0) // if true then A message was received
-	   {
-		   msgnum++;
-
-		   // If the Global Name Service (gns) is running, name_open() sends a connect message. The server must EOK it.
-		   if (msg.hdr.type == _IO_CONNECT )
-		   {
-			   MsgReply( rcvid, EOK, NULL, 0 );
-			   printf("\n gns service is running....");
-			   continue;	// go back to top of while loop
-		   }
-
-		   // Some other I/O message was received; reject it
-		   if (msg.hdr.type > _IO_BASE && msg.hdr.type <= _IO_MAX )
-		   {
-			   MsgError( rcvid, ENOSYS );
-			   printf("\n Server received and IO message and rejected it....");
-			   continue;	// go back to top of while loop
-		   }
-
-		   // A message (presumably ours) received
-
-		   // put your message handling code here and assemble a reply message
-		   light.trafficData.Left_NS = msg.LNS;
-           light.trafficData.Right_NS = msg.RNS;
-           light.trafficData.Top_EW = msg.TEW;
-           light.trafficData.Bottom_EW = msg.BEW;
-
-		   MsgReply(rcvid, EOK, &replymsg, sizeof(replymsg));
-	   } else {
-		   printf("\nERROR: Server received something, but could not handle it correctly\n");
-	   }
-
-	}
-
-	printf("\nServer received Destroy command\n");
-	// destroyed channel before exiting
-	ChannelDestroy(chid);
-
-
-	return EXIT_SUCCESS;
-}
-
-/*** Client code ***/
-int client_PedestrianL1(void *state_ptr) {
-	// connection data (you may need to edit this)
-	int serverPID;	// CHANGE THIS Value to PID of the server process
-	int	serverCHID;			// CHANGE THIS Value to Channel ID of the server process (typically 1)
-
-	FILE *serverFile;
-
-	serverFile = fopen("/tmp/PedestrianL1.info", "r");
-
-	if (serverFile == NULL) {
-		perror("Failed to open /tmp/TrafficToPedestrian_L1.info");
-		return EXIT_FAILURE;
-	}
-
-	if (fscanf(serverFile, "%d", &serverPID) != 1) {
-		printf("Failed to read server PID\n");
-		fclose(serverFile);
-		return EXIT_FAILURE;
-	}
-
-	if (fscanf(serverFile, "%d", &serverCHID) != 1) {
-		printf("Failed to read server channel ID\n");
-		fclose(serverFile);
-		return EXIT_FAILURE;
-	}
-
-	fclose(serverFile);
-
-		printf("Server information loaded from file:\n");
-
-    enum TrafficLight light = *(TrafficLight *)state_ptr
-
-    Pedstrian_client_data msg;
-    Pedstrian_client_reply reply;
-
-    msg.ClientID = 500;
-
-    int server_coid;
-
-	printf("   --> Trying to connect (server) process which has a PID: %d\n",   serverPID);
-	printf("   --> on channel: %d\n\n", serverChID);
-
-	// set up message passing channel
-    server_coid = ConnectAttach(ND_LOCAL_NODE, serverPID, serverChID, _NTO_SIDE_CHANNEL, 0);
-	if (server_coid == -1)
-	{
-        printf("\n    ERROR, could not connect to server!\n\n");
-        return EXIT_FAILURE;
-	}
-
-
-    printf("Connection established to process with PID:%d, Ch:%d\n", serverPID, serverChID);
-
-    // We would have pre-defined data to stuff here
-    msg.hdr.type = 0x00;
-    msg.hdr.subtype = 0x00;
-    char message;
-
-    // Do whatever work you wanted with server connection
-    while (1) {
-    	sleep(1);
-
-    	// Write your code
-    	msg.LNS = light.outputL1.Left_NS;
-    	msg.RNS = light.outputL1.Right_NS;
-    	msg.TEW = light.outputL1.Top_EW;
-    	msg.BEW = light.outputL1.Bottom_EW;
-        msg.time = settings.time;
-        msg.peroid = settings.peroid;
-        msg.stateChange = light.stateChange;
-
-        if (MsgSend(server_coid, &msg, sizeof(msg), &reply, sizeof(reply)) == -1) {
-			printf(" Error data '%d' NOT sent to server\n", msg.data); // maybe we did not get a reply from the server
-			break;
-        } else { // now process the reply
-			printf("   -->Reply is: '%s'\n", reply.buf);
-        }
-    }
-
-
-    // Close the connection
-    printf("\n Sending message to server to tell it to close the connection\n");
-    ConnectDetach(server_coid);
-
-    return EXIT_SUCCESS;
 }
