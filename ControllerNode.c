@@ -5,9 +5,14 @@
 #include <sys/iofunc.h>
 #include <sys/netmgr.h>
 
+#define INT_MAX 2147483647
+#define MAX_PRIORITY (INT_MAX / 8)
+
 typedef struct {
     int time;
     int peroid;
+    int train_detected; // Flag to indicate if a train is detected
+    int hardware_error; // Flag to indicate if there is a hardware error
 } Settings;
 typedef struct {
     int NE, NS, NW;
@@ -31,6 +36,11 @@ typedef struct {
     Movements priority;
     Movements input;
     Movements output;
+    Settings settings;
+
+    int train_detected; // Flag to indicate if a train is detected
+    int hardware_error; // Flag to indicate if there is a hardware error
+
 
     // Scores for every variant in each route group.
     int North_South[4];
@@ -43,16 +53,9 @@ typedef struct {
     RouteIndices best; // Highest-scoring variant index for each group.
 } Intersection;
 
-Intersection L1 = {0};
-Intersection L2 = {0};
-Settings settings = {0};
-
 enum states {L1_NS_and_L2_NS, L1_EW_and_L2_EW, L1_NW_and_L2_SE, L1_WS_and_L2_EN, L1_EN_and_L2_NW, L1_SE_and_L2_EW, L1_SW_and_L2_WS, L1_WE_and_L2_NW, L1_WE_and_L2_WS, L1_EN_and_L2_EW};
 enum states CurState = L1_NS_and_L2_NS;
 enum states RequestedState = L1_NS_and_L2_NS;
-int Decided_route = 0;
-
-int train_detected = 0; // Flag to indicate if a train is detected
 
 /* Example access:
  * L1.priority.NE = 8;
@@ -62,7 +65,21 @@ int train_detected = 0; // Flag to indicate if a train is detected
 
  // Send and receive Structs
  // Server side receives data from the client and sends back a reply.
- // Client side sends data to the server and receives a reply.
+ // Client side sends data to the server and receives a reply
+typedef struct {
+    struct _pulse hdr;  // Our real data comes after this header
+    int ClientID;       // our data (unique id from client)vv
+    int NE, NS, NW;
+    int EN, ES, EW;
+    int SN, SE, SW;
+    int WN, WE, WS;
+    int Left_NS, Right_NS;
+    int Top_EW, Bottom_EW;
+} L1_to_Controller_data;
+typedef struct {
+    struct _pulse hdr;  // Our real data comes after this header
+    char buf[BUF_SIZE]; // Message we send back to clients to tell them the messages was processed correctly.
+} L1_to_Controller_reply;
 typedef struct {
     struct _pulse hdr;  // Our real data comes after this header
     int ClientID;       // our data (unique id from client)vv
@@ -86,12 +103,11 @@ typedef struct {
     int WN, WE, WS;
     int Left_NS, Right_NS;
     int Top_EW, Bottom_EW;
-} L1_to_Controller_data;
+} L2_to_Controller_data;
 typedef struct {
     struct _pulse hdr;  // Our real data comes after this header
     char buf[BUF_SIZE]; // Message we send back to clients to tell them the messages was processed correctly.
-} L1_to_Controller_reply;
-
+} L_to_Controller_reply;
 typedef struct {
     struct _pulse hdr;  // Our real data comes after this header
     int ClientID;       // our data (unique id from client)vv
@@ -105,22 +121,18 @@ typedef struct {
 typedef struct {
     struct _pulse hdr;  // Our real data comes after this header
     char buf[BUF_SIZE]; // Message we send back to clients to tell them the messages was processed correctly.
-} Controller_to_L2_reply;
+} Controller_to_L_reply;
 typedef struct {
     struct _pulse hdr;  // Our real data comes after this header
-    int ClientID;       // our data (unique id from client)vv
-    int NE, NS, NW;
-    int EN, ES, EW;
-    int SN, SE, SW;
-    int WN, WE, WS;
-    int Left_NS, Right_NS;
-    int Top_EW, Bottom_EW;
-} L2_to_Controller_data;
+    int ClientID;       // our data (unique id from client)
+    int train_detected; // Flag to indicate if a train is detected
+    int hardware_error; // Flag to indicate if there is a hardware error
+} Train_server_data;
+
 typedef struct {
     struct _pulse hdr;  // Our real data comes after this header
     char buf[BUF_SIZE]; // Message we send back to clients to tell them the messages was processed correctly.
-} L2_to_Controller_reply;
-
+} Train_server_reply;
 
 
 void Find_Maximum_Index(const int *array, int size, int *max_index);
@@ -137,46 +149,69 @@ void South_to_East_route_Case_Statement(int route_index, Intersection *light);
 static void Increase_Waiting_Priority(int *priority, int output);
 void Update_Waiting_Priorities(Intersection *light);
 static void Update_One_Priority(int *priority, int output);
-
+void StateMachine(void *state, void *inputs);
+void client_Controller_L1(void *state_ptr);
+void client_Controller_L2(void *state_ptr);
+void server_Controller_L1(void *state_ptr);
+void server_Controller_L2(void *state_ptr);
+void server_Controller_Train(void *state_ptr);
+void *server_Start_Controller_L1(void *state_ptr);
+void *server_Start_Controller_L2(void *state_ptr);
+void *client_Start_Controller_L1(void *state_ptr);
+void *client_Start_Controller_L2(void *state_ptr);
 
 int main(int argc, char *argv[]) {
 	printf("Control node running\n");
 
-	pthread_t  th1;
+	pthread_t  th1, th2, th3, th4, th5;
 	void *retval;
+    Intersection L1 = {0};
+    Intersection L2 = {0};
+    Settings settings = {0};
 
 	// Create and start the thread
-	pthread_create (&th1, NULL, StateMachine, NULL);
+	pthread_create (&th1, NULL, client_Start_Controller_L1, &L1);
+    pthread_create (&th2, NULL, client_Start_Controller_L2, &L2);
+    pthread_create (&th3, NULL, server_Start_Controller_L1, &L1);
+    pthread_create (&th4, NULL, server_Start_Controller_L2, &L2);
+    pthread_create (&th5, NULL, server_Start_Controller_Train, &settings);
+
+    while (1) {
+        sleep(1);
+        StateMachine(&CurState, NULL);
+    }
 
 
 	pthread_join (th1, &retval);
+    pthread_join (th2, &retval);
+    pthread_join (th3, &retval);
+    pthread_join (th4, &retval);
+    pthread_join (th5, &retval);
 
 	printf("Main Controller Terminated....\n");
 	return ret;
 }
 
-void StateMachine(void *state, void *inputs) {
+void StateMachine(void *inputs) {
     enum states currentState = *(enum states *)state;
-    while (1) {
-        for (int i = 0; i < settings.time; i++) {
-            sleep(settings.peroid);
-            if (train_detected) {
-                // Handle train detection logic here
-                break; // Exit the loop if a train is detected
-            }
+    for (int i = 0; i < settings.time; i++) {
+        sleep(settings.peroid);
+        if (train_detected) {
+            // Handle train detection logic here
+            break; // Exit the loop if a train is detected
         }
-        Update_Waiting_Priorities(&L1);
-        Update_Waiting_Priorities(&L2);
-        Update_One_Priority(&L1.priority.NE, L1.output.NE);
-        Update_One_Priority(&L1.priority.NS, L1.output.NS);
-        TrafficLight_Logics(inputs);
-
-        if (currentState != RequestedState) {
-            currentState = RequestedState;
-            *(enum states *)state = currentState;
-        }
-        TrafficLight_State_Machine(state, inputs);
     }
+    Update_Waiting_Priorities(&L1);
+    Update_Waiting_Priorities(&L2);
+    Update_One_Priority(&L1.priority.NE, L1.output.NE);
+    Update_One_Priority(&L1.priority.NS, L1.output.NS);
+    TrafficLight_Logics(inputs);
+
+    if (currentState != RequestedState) {
+        currentState = RequestedState;
+        *(enum states *)state = currentState;
+    }
+    TrafficLight_State_Machine(state, inputs);
 }
 
 void Reset_Traffic_Light_Outputs(Intersection *light) {
@@ -607,6 +642,7 @@ void TrafficLight_Logics(void *inputs) {
     Calculate_Route_Scores(&L2);
 
     int TrafficRoutes[10];
+    int Decided_route = 0;
     // L1 North South route + L2 North South route
     TrafficRoutes[0] = L1.North_South[L1.best.North_South] + L2.North_South[L2.best.North_South];
     // L1 East West route + L2 East West route
@@ -643,10 +679,6 @@ void Find_Maximum_Index(const int *array, int size, int *max_index) {
         }
     }
 }
-
-# define INT_MAX 2147483647
-
-#define MAX_PRIORITY (INT_MAX / 8)
 
 static void Increase_Waiting_Priority(int *priority, int output) {
     // No waiting request, or movement was allowed this cycle.
@@ -703,9 +735,19 @@ static void Update_One_Priority(int *priority, int output) {
     }
 }
 
+void *client_Start_Controller_L1(void *state_ptr) {
+    while (1) {
+        sleep(2);
+        (void)client_Controller_l1(state_ptr);
+    }
+
+    return NULL;
+}
 
 /*** Client code ***/
 int client_Controller_L1(void *state_ptr) {
+
+    Intersection *L1 = state_ptr;
 
     int serverPID;
     int serverCHID;
@@ -797,9 +839,20 @@ int client_Controller_L1(void *state_ptr) {
     return EXIT_SUCCESS;
 }
 
+void *server_Start_Controller_L1(void *state_ptr) {
+    printf("Server running\n");
+
+    (void)server_Controller_L1(state_ptr);
+
+    printf("Main (Server) Terminated....\n");
+    return NULL;
+}
+
 /*** Server code ***/
 int server_Controller_L1(void *state_ptr) {
     int serverPID=0, chid=0;
+
+    Intersection *L1 = state_ptr;
 
     serverPID = getpid();
 
@@ -967,12 +1020,22 @@ int server_Controller_L1(void *state_ptr) {
     return EXIT_FAILURE;
 }
 
+void *client_Start_Controller_L2(void *state_ptr) {
+    while (1) {
+        sleep(2);
+        (void)client_Controller_L2(state_ptr);
+    }
+
+    return NULL;
+}
 
 /*** Client code ***/
 int client_Controller_L2(void *state_ptr) {
 
     int serverPID;
     int serverCHID;
+
+    Intersection *L2 = state_ptr;
 
     FILE *serverFile;
 
@@ -1061,9 +1124,20 @@ int client_Controller_L2(void *state_ptr) {
     return EXIT_SUCCESS;
 }
 
+void *server_Start_Controller_L2(void *state_ptr) {
+    printf("Server running\n");
+
+    (void)server_Controller_L2(state_ptr);
+
+    printf("Main (Server) Terminated....\n");
+    return NULL;
+}
+
 /*** Server code ***/
 int server_Controller_L2(void *state_ptr) {
     int serverPID=0, chid=0;
+
+    Intersection *L2 = state_ptr;
 
     serverPID = getpid();
 
@@ -1213,6 +1287,170 @@ int server_Controller_L2(void *state_ptr) {
                 L2.input.Right_NS = msg.Right_NS;
                 L2.input.Top_EW = msg.Top_EW;
                 L2.input.Bottom_EW = msg.Bottom_EW;
+
+
+           MsgReply(rcvid, EOK, &replymsg, sizeof(replymsg));
+       }
+       else
+       {
+           printf("\nERROR: Server received something, but could not handle it correctly\n");
+       }
+
+    }
+
+    printf("\nServer received Destroy command\n");
+    // destroyed channel before exiting
+    ChannelDestroy(chid);
+    unlink("/tmp/TrafficToPedestrian_L1.info");
+
+    return EXIT_FAILURE;
+}
+
+void *server_Start_Controller_Train(void *state_ptr) {
+    printf("Server running\n");
+
+    (void)server_Controller_Train(state_ptr);
+
+    printf("Main (Server) Terminated....\n");
+    return NULL;
+}
+
+/*** Server code ***/
+int server_Controller_Train(void *state_ptr) {
+    int serverPID=0, chid=0;
+
+    serverPID = getpid();
+
+    // Create Channel
+    chid = ChannelCreate(_NTO_CHF_DISCONNECT);
+    if (chid == -1)  // _NTO_CHF_DISCONNECT flag used to allow detach
+    {
+        printf("\nFailed to create communication channel on server\n");
+        return EXIT_FAILURE;
+    }
+
+    FILE *serverFile;
+
+    serverFile = fopen("/tmp/TrainToController.info", "w");
+
+    if (serverFile == NULL)
+    {
+        perror("Failed to open /tmp/TrainToController.info");
+        ChannelDestroy(chid);
+        return EXIT_FAILURE;
+    }
+
+    fprintf(serverFile, "%d\n%d\n", serverPID, chid);
+
+    fclose(serverFile);
+
+    printf("Server information written to /tmp/TrainToController.info\n");
+
+    printf("Server Listening for Clients on:\n");
+    printf("  --> Process ID   : %d \n", serverPID);
+    printf("  --> Channel ID   : %d \n\n", chid);
+
+    Pedstrian_server_data msg = {0};
+    struct _msg_info info;
+    int rcvid=0, msgnum=0;      // no message received yet
+    int Stay_alive=0, living=0; // server stays running (ignores _PULSE_CODE_DISCONNECT request)
+
+    Pedstrian_server_reply replymsg = {0};           // replymsg structure for sending back to client
+    replymsg.hdr.type = 0x01;
+    replymsg.hdr.subtype = 0x00;
+    snprintf(replymsg.buf, sizeof(replymsg.buf), "OK");
+
+    living =1;
+    while (living)
+    {
+       // Do your MsgReceive's here now with the chid
+       rcvid = MsgReceive(chid, &msg, sizeof(msg), &info);
+
+       if (rcvid == -1)  // Error condition, exit
+       {
+           if (errno == EINTR) continue;
+           perror("MsgReceive");
+           break;
+       }
+
+       // did we receive a Pulse or message?
+       // for Pulses:
+       if (rcvid == 0)  //  Pulse received, work out what type
+       {
+           switch (msg.hdr.code)
+           {
+               case _PULSE_CODE_DISCONNECT:
+                    // A client disconnected all its connections by running
+                    // name_close() for each name_open()  or terminated
+                   if( Stay_alive == 0)
+                   {
+                       ConnectDetach(msg.hdr.scoid);
+                       printf("\nServer was told to Detach from connection:%d ...\n", msg.hdr.scoid);
+                       continue;
+                   }
+                   else
+                   {
+                       printf("\nServer received Detach pulse from connection:%d but rejected it ...\n", msg.hdr.scoid);
+                   }
+                   break;
+
+               case _PULSE_CODE_UNBLOCK:
+                    // REPLY blocked client wants to unblock (was hit by a signal
+                    // or timed out).  It's up to you if you reply now or later.
+                   printf("\nServer got _PULSE_CODE_UNBLOCK after %d, msgnum\n", msgnum);
+                   break;
+
+               case _PULSE_CODE_COIDDEATH:  // from the kernel
+                   printf("\nServer got _PULSE_CODE_COIDDEATH after %d, msgnum\n", msgnum);
+                   break;
+
+               case _PULSE_CODE_THREADDEATH: // from the kernel
+                   printf("\nServer got _PULSE_CODE_THREADDEATH after %d, msgnum\n", msgnum);
+                   break;
+
+               default:
+                   // Some other pulse sent by one of your processes or the kernel
+                   printf("\nServer got some other pulse after %d, msgnum\n", msgnum);
+                   break;
+
+           }
+           continue;// go back to top of while loop
+       }
+
+       // for messages:
+       if(rcvid > 0) {
+           msgnum++;
+
+            // If the Global Name Service (gns) is running, name_open() sends a connect message. The server must EOK it.
+            if (msg.hdr.type == _IO_CONNECT )
+            {
+                MsgReply( rcvid, EOK, NULL, 0 );
+                printf("\n gns service is running....");
+                continue;   // go back to top of while loop
+            }
+
+            // Some other I/O message was received; reject it
+            if (msg.hdr.type > _IO_BASE && msg.hdr.type <= _IO_MAX )
+            {
+                MsgError( rcvid, ENOSYS );
+                printf("\n Server received and IO message and rejected it....");
+                continue;   // go back to top of while loop
+            }
+
+            if ((size_t)info.msglen != sizeof(msg) ||
+                (size_t)info.srcmsglen != sizeof(msg)) {
+                MsgError(rcvid, EMSGSIZE);
+                continue;
+            }
+            if (msg.hdr.type != 0x00 ||
+                (msg.stateChange != 0 && msg.stateChange != 1)) {
+                MsgError(rcvid, EINVAL);
+                continue;
+            }
+
+            // An unchanged status must not overwrite a pending command.
+            train_detected = msg.train_detected;
+            hardware_error = msg.hardware_error;
 
 
            MsgReply(rcvid, EOK, &replymsg, sizeof(replymsg));
