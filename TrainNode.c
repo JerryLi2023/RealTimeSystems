@@ -174,7 +174,7 @@ void *client_Start_Controller(void *state_ptr) {
 /*** Client code ***/
 int client_TrainL1(void *state_ptr) {
 
-    TrainData *trainData = state_ptr;
+    struct Intersection L1 = *(struct Intersection *)state_ptr;
 
     int serverPID;
     int serverCHID;
@@ -271,7 +271,7 @@ int client_TrainL1(void *state_ptr) {
 /*** Client code ***/
 int client_TrainL2(void *state_ptr) {
 
-    TrainData *trainData = state_ptr;
+    struct Intersection L2 = *(struct Intersection *)state_ptr;
 
     int serverPID;
     int serverCHID;
@@ -368,7 +368,7 @@ int client_TrainL2(void *state_ptr) {
 /*** Client code ***/
 int client_TrainController(void *state_ptr) {
 
-    TrainData *trainData = state_ptr;
+    struct Settings settings = *(struct Settings *)state_ptr;
 
     int serverPID;
     int serverCHID;
@@ -452,6 +452,10 @@ int client_TrainController(void *state_ptr) {
         } else { // now process the reply
             printf("   -->Reply is: '%.*s'\n", (int)sizeof(reply.buf), reply.buf);
         }
+
+        settings.train_detected = msg.train_detected;
+        settings.hardware_error = msg.hardware_error;
+        sleep(1); // Sleep for a while before sending the next message
     }
 
 

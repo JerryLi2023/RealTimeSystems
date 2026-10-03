@@ -711,7 +711,7 @@ void TrainLogicNode(void *state_ptr, void *inputs) {
 int server_PedestrianL1(void *state_ptr) {
 	int serverPID=0, chid=0; 	// Server PID and channel ID
 
-    enum TrafficLight light = *(TrafficLight *)state_ptr;
+    struct TrafficLight light = *(TrafficLight *)state_ptr;
 
 	serverPID = getpid(); 		// get server process ID
 

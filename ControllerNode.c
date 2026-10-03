@@ -177,10 +177,8 @@ int main(int argc, char *argv[]) {
     pthread_create (&th5, NULL, server_Start_Controller_Train, &settings);
 
     while (1) {
-        sleep(1);
-        StateMachine(&CurState, NULL);
+        StateMachine(&L1, &L2, &settings);
     }
-
 
 	pthread_join (th1, &retval);
     pthread_join (th2, &retval);
@@ -192,26 +190,21 @@ int main(int argc, char *argv[]) {
 	return ret;
 }
 
-void StateMachine(void *inputs) {
-    enum states currentState = *(enum states *)state;
+void StateMachine(void *L1_data, void *L2_data, void *settings_data) {
+    struct Intersection L1 = *(struct Intersection *)L1_data;
+    struct Intersection L2 = *(struct Intersection *)L2_data;
+    struct Settings settings = *(struct Settings *)settings_data;
+    enum states currentState;
     for (int i = 0; i < settings.time; i++) {
-        sleep(settings.peroid);
-        if (train_detected) {
-            // Handle train detection logic here
-            break; // Exit the loop if a train is detected
-        }
+        sleep(settings.period);
     }
     Update_Waiting_Priorities(&L1);
     Update_Waiting_Priorities(&L2);
     Update_One_Priority(&L1.priority.NE, L1.output.NE);
     Update_One_Priority(&L1.priority.NS, L1.output.NS);
-    TrafficLight_Logics(inputs);
+    currentState = (enum states *)TrafficLight_Logics(&L1, &L2);
 
-    if (currentState != RequestedState) {
-        currentState = RequestedState;
-        *(enum states *)state = currentState;
-    }
-    TrafficLight_State_Machine(state, inputs);
+    TrafficLight_State_Machine(&currentState, &L1, &L2);
 }
 
 void Reset_Traffic_Light_Outputs(Intersection *light) {
@@ -220,8 +213,9 @@ void Reset_Traffic_Light_Outputs(Intersection *light) {
     }
 }
 
-void TrafficLight_State_Machine(void *state_ptr, void *inputs) {
-    (void)inputs;
+void TrafficLight_State_Machine(void *state_ptr, void *L1_data, void *L2_data) {
+    struct Intersection L1 = *(struct Intersection *)L1_data;
+    struct Intersection L2 = *(struct Intersection *)L2_data;
     Reset_Traffic_Light_Outputs(&L1);
     Reset_Traffic_Light_Outputs(&L2);
 
@@ -636,8 +630,10 @@ void Calculate_Route_Scores(Intersection *light) {
 
 }
 
-void TrafficLight_Logics(void *inputs) {
-    (void)inputs; // Populate L1.priority and L2.priority before calling.
+void *TrafficLight_Logics(void *L1_data, void *L2_data) {
+    struct Intersection L1 = *(struct Intersection *)L1_data;
+    struct Intersection L2 = *(struct Intersection *)L2_data;
+
     Calculate_Route_Scores(&L1);
     Calculate_Route_Scores(&L2);
 
@@ -747,7 +743,7 @@ void *client_Start_Controller_L1(void *state_ptr) {
 /*** Client code ***/
 int client_Controller_L1(void *state_ptr) {
 
-    Intersection *L1 = state_ptr;
+    struct Intersection L1 = *(struct Intersection *)state_ptr;
 
     int serverPID;
     int serverCHID;
@@ -852,7 +848,7 @@ void *server_Start_Controller_L1(void *state_ptr) {
 int server_Controller_L1(void *state_ptr) {
     int serverPID=0, chid=0;
 
-    Intersection *L1 = state_ptr;
+    struct Intersection L1 = *(struct Intersection *)state_ptr;
 
     serverPID = getpid();
 
@@ -1035,7 +1031,7 @@ int client_Controller_L2(void *state_ptr) {
     int serverPID;
     int serverCHID;
 
-    Intersection *L2 = state_ptr;
+    struct Intersection L2 = *(struct Intersection *)state_ptr;
 
     FILE *serverFile;
 
@@ -1137,7 +1133,7 @@ void *server_Start_Controller_L2(void *state_ptr) {
 int server_Controller_L2(void *state_ptr) {
     int serverPID=0, chid=0;
 
-    Intersection *L2 = state_ptr;
+    struct Intersection L2 = *(struct Intersection *)state_ptr;
 
     serverPID = getpid();
 
@@ -1321,6 +1317,8 @@ int server_Controller_Train(void *state_ptr) {
 
     serverPID = getpid();
 
+    struct Setting setting = *(struct Setting *)state_ptr;
+
     // Create Channel
     chid = ChannelCreate(_NTO_CHF_DISCONNECT);
     if (chid == -1)  // _NTO_CHF_DISCONNECT flag used to allow detach
@@ -1449,8 +1447,8 @@ int server_Controller_Train(void *state_ptr) {
             }
 
             // An unchanged status must not overwrite a pending command.
-            train_detected = msg.train_detected;
-            hardware_error = msg.hardware_error;
+            setting.train_detected = msg.train_detected;
+            setting.hardware_error = msg.hardware_error;
 
 
            MsgReply(rcvid, EOK, &replymsg, sizeof(replymsg));
