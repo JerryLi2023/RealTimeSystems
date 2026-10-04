@@ -11,10 +11,20 @@
 #include <sys/dispatch.h>
 #include <sys/neutrino.h>
 #include <sys/iomsg.h>
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Global Mutex for Pedestrian Light Node
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
 pthread_mutex_t light_mutex = PTHREAD_MUTEX_INITIALIZER;
-/*-------------------------------------------------------------------------------
-    Pedestrian Logic Structures 
---------------------------------------------------------------------------------*/
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Pedestrian Logic Structures 
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
 typedef struct {
     int LeftNorthSouthButton;
     int LeftSouthNorthButton;
@@ -73,63 +83,42 @@ void *button_checker(void *state_ptr);
 /*------------------------------------------------------------------------------
     Structure Used for both Client and Server Communication
 *-----------------------------------------------------------------------------*/
-#define BUF_SIZE 100
-#define DATA_TYPE 0x22
+#define PEDESTRIAN_ATTACH_POINT "Pedestrian"
+#define PEDESTRIAN_DATA_TYPE 0x22
+#define PEDESTRIAN_BUF_SIZE 100
+
+#define PEDESTRIAN_SET_STATE    1
+#define PEDESTRIAN_REQUEST_DATA 2
+
 typedef union {
     uint32_t sival_int;
     uint32_t dummy[4];
-} _mysigval;
-typedef struct _Mypulse {
-   uint16_t type;
-   uint16_t subtype;
-   int8_t code;
-   uint8_t zero[3];         // Same padding that is used in standard _pulse struct
-   _mysigval value;
-   uint8_t zero2[2];        // Extra padding to ensure alignment access.
-   int32_t scoid;
-} msg_header_t;
-typedef char check_header[(sizeof(msg_header_t) == 32) ? 1 : -1];
-/*------------------------------------------------------------------------------
-    Client Structure: Pedestrian Light Control System
-*-----------------------------------------------------------------------------*/
-#define QNET_ATTACH_POINT_CLIENT  "/net/VM_x86_Target01/dev/name/local/myname" 
-#define SET_PEDESTRIAN_STATE  1
-#define REQUEST_BUTTON_DATA  2
+} Pedestrian_Sigval;
+
 typedef struct {
-    msg_header_t hdr;
-    int32_t ClientID;
-    int32_t LeftNorthSouth;
-    int32_t RightNorthSouth;
-    int32_t TopEastWest;
-    int32_t BottomEastWest;
-} client_data;
-typedef struct {
-    msg_header_t hdr;
-    char buf[BUF_SIZE];
-} client_reply;
-typedef char check_client_data[(sizeof(client_data) == 52 &&offsetof(client_data, LeftNorthSouth) == 36) ? 1 : -1];
+    uint16_t type;
+    uint16_t subtype;
+    int8_t code;
+    uint8_t zero[3];
+    Pedestrian_Sigval value;
+    uint8_t zero2[2];
+    int32_t scoid;
+} Pedestrian_MessageHeader;
 /*------------------------------------------------------------------------------
     Server Structure: Pedestrian Light Control System
 *-----------------------------------------------------------------------------*/
-#define ATTACH_POINT "myname"
+/* Reply to PEDESTRIAN_SET_STATE. */
 typedef struct {
-    msg_header_t hdr;
-    int32_t ClientID;
-    int32_t trafficstate;
-    int32_t time;
-    int32_t period;
-} server_data;
+    Pedestrian_MessageHeader hdr;
+    char buf[PEDESTRIAN_BUF_SIZE];
+} Pedestrian_State_Reply;
+
+/* Reply to PEDESTRIAN_REQUEST_DATA. */
 typedef struct {
-    msg_header_t hdr;
-    char buf[BUF_SIZE];
-} my_reply;
-typedef char check_server_data[(sizeof(server_data) == 48 && offsetof(server_data, trafficstate) == 36) ? 1 : -1];
-/* Native pulses MUST be decoded with struct _pulse, not msg_header_t.
- * The kernel's pulse layout is independent of our application protocol. */
-typedef union {
-    struct _pulse pulse;
-    server_data data;
-} receive_buffer;
+    Pedestrian_MessageHeader hdr;
+    ButtonPresses buttons;
+} Pedestrian_Button_Reply;
+
 /*------------------------------------------------------------------------------
     Main Function: Pedestrian Light Control System
 *-----------------------------------------------------------------------------*/
@@ -155,41 +144,38 @@ int main(void)
     light.lightState = TRAFFIC_RED;
     return EXIT_SUCCESS;
 }
-/*------------------------------------------------------------------------------
-    Pedestrian Light Server receiving data from the client
-*-----------------------------------------------------------------------------*/
 
-int server(PedstrianLight *light) {
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Server Code — Pedestrian Node Only
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
+int Pedestrian_Server(PedstrianLight *light, pthread_mutex_t *mutex)
+{
     name_attach_t *attach;
-    server_data msg = {0};
-    my_reply replymsg = {0};
+    Pedestrian_Client_data msg = {0};
 
-    /* Receive either a native QNX pulse or an application message.
-     * Copy application messages into msg to keep the teacher's
-     * msg.hdr / msg.trafficstate access style.
-     */
     union {
         struct _pulse pulse;
-        server_data message;
+        Pedestrian_Client_data message;
     } received;
 
     int rcvid;
-    int msgnum = 0;
-    int Stay_alive = 0; /* Teacher's setting: 0 exits on disconnect. */
-    int living = 1;
     int status = EXIT_SUCCESS;
 
-    replymsg.hdr.type = 0x01;
-
-    if ((attach = name_attach(NULL, ATTACH_POINT, 0)) == NULL) {
+    if ((attach = name_attach(NULL,
+                              PEDESTRIAN_ATTACH_POINT, 0)) == NULL) {
         perror("name_attach");
         return EXIT_FAILURE;
     }
 
-    printf("Server listening on: %s\n", ATTACH_POINT);
+    printf("Pedestrian server listening on: %s\n",
+           PEDESTRIAN_ATTACH_POINT);
 
-    while (living) {
+    while (1) {
         memset(&received, 0, sizeof(received));
+
         rcvid = MsgReceive(attach->chid, &received,
                            sizeof(received), NULL);
 
@@ -199,13 +185,11 @@ int server(PedstrianLight *light) {
             break;
         }
 
-        /* Pulses use the native QNX structure. */
+        /* Native QNX pulse. */
         if (rcvid == 0) {
             switch (received.pulse.code) {
                 case _PULSE_CODE_DISCONNECT:
                     ConnectDetach(received.pulse.scoid);
-                    if (Stay_alive == 0)
-                        living = 0;
                     break;
 
                 case _PULSE_CODE_UNBLOCK:
@@ -214,10 +198,11 @@ int server(PedstrianLight *light) {
                 default:
                     break;
             }
+
+            /* Keep listening after a client disconnects. */
             continue;
         }
 
-        /* Ordinary message: keep the teacher's msg.field format. */
         msg = received.message;
 
         if (msg.hdr.type == _IO_CONNECT) {
@@ -225,49 +210,53 @@ int server(PedstrianLight *light) {
             continue;
         }
 
-        if (msg.hdr.type >= _IO_BASE && msg.hdr.type <= _IO_MAX) {
+        if (msg.hdr.type >= _IO_BASE &&
+            msg.hdr.type <= _IO_MAX) {
             MsgError(rcvid, ENOSYS);
             continue;
         }
 
-        if (msg.hdr.type != DATA_TYPE) {
+        if (msg.hdr.type != PEDESTRIAN_DATA_TYPE) {
             MsgError(rcvid, ENOSYS);
             continue;
         }
 
         switch (msg.hdr.subtype) {
-            case SET_PEDESTRIAN_STATE:
-                pthread_mutex_lock(&light_mutex);
-                light->currentState =
-                    (PedestrianCombination)msg.trafficstate;
-                light->timer = msg.time;
-                light->period = msg.period;
-                pthread_mutex_unlock(&light_mutex);
+            case PEDESTRIAN_SET_STATE: {
+                Pedestrian_State_Reply reply = {0};
 
-                msgnum++;
-                snprintf(replymsg.buf, BUF_SIZE,
-                         "Message %d received", msgnum);
-                replymsg.hdr.subtype = SET_PEDESTRIAN_STATE;
+                pthread_mutex_lock(mutex);
+                light->currentState = msg.pedestrianCombination;
+                light->timer = msg.settings.time;
+                light->period = msg.settings.peroid;
+                pthread_mutex_unlock(mutex);
 
-                MsgReply(rcvid, EOK, &replymsg, sizeof(replymsg));
+                reply.hdr.type = PEDESTRIAN_DATA_TYPE;
+                reply.hdr.subtype = PEDESTRIAN_SET_STATE;
+
+                snprintf(reply.buf, sizeof(reply.buf),
+                         "Pedestrian state received");
+
+                /* Acknowledges the data update, not physical GPIO output. */
+                MsgReply(rcvid, EOK, &reply, sizeof(reply));
                 break;
+            }
 
-            case REQUEST_BUTTON_DATA: {
-                client_data buttons = {0};
+            case PEDESTRIAN_REQUEST_DATA: {
+                Pedestrian_Button_Reply reply = {0};
 
-                buttons.hdr.type = DATA_TYPE;
-                buttons.hdr.subtype = REQUEST_BUTTON_DATA;
-                buttons.ClientID = 800;
+                reply.hdr.type = PEDESTRIAN_DATA_TYPE;
+                reply.hdr.subtype = PEDESTRIAN_REQUEST_DATA;
 
-                pthread_mutex_lock(&light_mutex);
-                buttons.LeftNorthSouth = light->LeftNorthSouth;
-                buttons.RightNorthSouth = light->RightNorthSouth;
-                buttons.TopEastWest = light->TopEastWest;
-                buttons.BottomEastWest = light->BottomEastWest;
-                pthread_mutex_unlock(&light_mutex);
+                pthread_mutex_lock(mutex);
+                reply.buttons.Left_NS = light->LeftNorthSouth;
+                reply.buttons.Right_NS = light->RightNorthSouth;
+                reply.buttons.Top_EW = light->TopEastWest;
+                reply.buttons.Bottom_EW = light->BottomEastWest;
+                pthread_mutex_unlock(mutex);
 
-                /* Return button data only when requested. */
-                MsgReply(rcvid, EOK, &buttons, sizeof(buttons));
+                /* Return button values without changing the light state. */
+                MsgReply(rcvid, EOK, &reply, sizeof(reply));
                 break;
             }
 
@@ -278,56 +267,6 @@ int server(PedstrianLight *light) {
     }
 
     name_detach(attach, 0);
-    return status;
-}
-
-/*------------------------------------------------------------------------------
-    Pedestrian Light Client sending data to the server
-*-----------------------------------------------------------------------------*/
-
-int client(const char *sname, PedstrianLight *light)
-{
-    client_data msg = {0};
-    my_reply reply = {0};
-
-    int server_coid;
-    int status = EXIT_SUCCESS;
-
-    msg.ClientID = 800;
-    msg.hdr.type = DATA_TYPE;
-    msg.hdr.subtype = 0; /* Button-data message to the traffic light. */
-
-    printf("Trying to connect to: %s\n", sname);
-
-    if ((server_coid = name_open(sname, 0)) == -1) {
-        perror("name_open");
-        return EXIT_FAILURE;
-    }
-
-    printf("Connection established to: %s\n", sname);
-
-    while (1) {
-        pthread_mutex_lock(&light_mutex);
-        msg.LeftNorthSouth = light->LeftNorthSouth;
-        msg.RightNorthSouth = light->RightNorthSouth;
-        msg.TopEastWest = light->TopEastWest;
-        msg.BottomEastWest = light->BottomEastWest;
-        pthread_mutex_unlock(&light_mutex);
-
-        /* Do not hold the mutex while waiting for the reply. */
-        reply = (my_reply){0};
-
-        if (MsgSend(server_coid, &msg, sizeof(msg),
-                    &reply, sizeof(reply)) == -1) {
-            perror("MsgSend");
-            status = EXIT_FAILURE;
-            break;
-        }
-
-        printf("Reply: %.*s\n", BUF_SIZE, reply.buf);
-    }
-
-    name_close(server_coid);
     return status;
 }
 
