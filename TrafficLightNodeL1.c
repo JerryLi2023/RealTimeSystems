@@ -145,6 +145,11 @@ void ControllerStateMachine(void *state_ptr, void *inputs);
 void CrossCommunicationStateMachine(void *state_ptr, void *inputs);
 void NoControllerStateMachine(void *state_ptr, void *inputs);
 void StateOutput(TrafficState state, Movements *output);
+TrafficState TrafficLogicNode(void *state_ptr);
+TrafficState TrafficLogicNodeL2(void *state_ptr);
+TrafficState TrainLogicNode(void *state_ptr);
+void StateOutput(TrafficState state, Movements *output);
+PedestrianCombination GetPedestrianCombination(const Movements *output);
 
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
@@ -314,7 +319,8 @@ typedef struct {
 //------------------------------------------------------------------------------------------------
 
 int main(void) {
-    TrafficLight light = {
+    // Initialise the States
+    TrafficLight L1 = {
         .trafficState = TRAFFIC_GREEN,
         .trafficDirection = STATE_NS_SN_NE_SW,
         .trafficDirectionNext = NS,
@@ -322,17 +328,48 @@ int main(void) {
         .controllerDirection = STATE_NS_SN_Left_NS_Right_NS,
         .trainDirection = NS
     };
-    /* Example timing: original zero values made the loops run without waiting. */
+    TrafficLight L2 = {
+        .trafficState = TRAFFIC_GREEN,
+        .trafficDirection = STATE_NS_SN_NE_SW,
+        .trafficDirectionNext = NS,
+        .trainDirectionNext = NS,
+        .controllerDirection = STATE_NS_SN_Left_NS_Right_NS,
+        .trainDirection = NS
+    };
+    // Sets the Timer function
     settings.time = 5;
     settings.period = 1;
 
+    // Create all the threads
+
+    // Sleep for 5 Seconds to initalise
+    sleeep(5);
+
+
     while (1) {
+        // Request for pedestrian data if pedestrian is connected if so request for datasend from pedestrian node if not then all pedestrian button = 0
+        // if connection is there wait for response
+
+        // Send the data to the controller node and send L2 for data send sync -> sleep for 1 second so that the controller value get calculated
+        sleep(1)
+        // request the calculated value from controller
+
+        // Select the states of connections
         if (controllerConnected) {
-            ControllerStateMachine(&light, NULL);
+            // request the calculated value from controller
+            ControllerStateMachine(&L1, NULL);
+            // Sends data to pedestrian node for state change and the light it should light up
+            // send the sync request to L2 to start the state together
+            // Loop logics and train logics
         } else if (L2Connected) {
-            CrossCommunicationStateMachine(&light, &L2);
+            CrossCommunicationStateMachine(&L1, &L2);
+            // Convert L2 movement into traffic states
+            // Sends L2 data to L2
+            // Request L2 to start the state change
+            // Loop logics and train logics
         } else {
-            NoControllerStateMachine(&light, NULL);
+            NoControllerStateMachine(&L1, NULL);
+            // Loop logics and train logics
         }
     }
 
@@ -419,7 +456,10 @@ int Train_Traffic_Server(TrainState *trainState, pthread_mutex_t *mutex) {
 
         /* Store the received status on the traffic-light node. */
         pthread_mutex_lock(mutex);
-        *trainState = (TrainState)msg.trainState;
+
+        light->trainDirection = (TrainState)msg.trainState;
+        light->train_detected = (light->trainDirection == TRAIN_PRESENT);
+
         pthread_mutex_unlock(mutex);
 
         Train_Server_Reply reply = {0};
@@ -716,86 +756,164 @@ void TrafficLightTransition(TrafficLight *light, int tick, int greenTicks, int y
     }
 }
 
-void ControllerStateMachine(void *state_ptr, void *inputs) {
-    // Implement the controller state machine logic here
-    // This function will manage the traffic light states based on inputs and timing
+void ControllerStateMachine(void *state_ptr, void *inputs)
+{
     TrafficLight *light = state_ptr;
+    TrafficLight snapshot;
+    Settings timing;
+    TrafficState nextState;
+
     (void)inputs;
-    if (light->train_detected) {
-        light->trafficDirection = TrainLogicNode(light);
-        StateOutput(light->trafficDirection, &light->outputL1);
-        TrafficLightTransition(light, i, settings.time - 3, 2);
-        for (int i = 0; i < settings.time; i++) {
-            sleep(settings.peroid);
-        }
+
+    pthread_mutex_lock(&light_mutex);
+    snapshot = *light;
+    timing = settings;
+    pthread_mutex_unlock(&light_mutex);
+
+    if (snapshot.train_detected) {
+        nextState = TrainLogicNode(&snapshot);
     } else {
-        light->trafficDirection = light->controllerDirection;
-        StateOutput(light->trafficDirection, &light->outputL1);
-        for (int i = 0; i < settings.time; i++) {
-            sleep(settings.peroid);
-            TrafficLightTransition(light, i, settings.time - 3, 2);
-            if (light->train_detected) {
-                break; // Exit the loop if a train is detected
-            }
+        nextState = snapshot.controllerDirection;
+    }
+
+    pthread_mutex_lock(&light_mutex);
+
+    light->trafficDirection = nextState;
+    StateOutput(nextState, &light->outputL1);
+
+    light->pedestrianCombination = GetPedestrianCombination(&light->outputL1);
+
+    pthread_mutex_unlock(&light_mutex);
+
+    for (int i = 0; i < timing.time; i++) {
+        pthread_mutex_lock(&light_mutex);
+
+        /* Interrupt a normal phase when a train is detected. */
+        if (!snapshot.train_detected && light->train_detected) {
+            pthread_mutex_unlock(&light_mutex);
+            break;
         }
+        TrafficLightTransition(light, i, timing.time - 3, 2);
+        pthread_mutex_unlock(&light_mutex);
+        sleep(timing.peroid);
     }
 }
 
 void CrossCommunicationStateMachine(void *state_ptr, void *state_ptr2) {
-    // Implement the cross-communication state machine logic here
-    // This function will handle communication between different traffic light nodes
     TrafficLight *L1 = state_ptr;
     TrafficLight *L2 = state_ptr2;
-    L2->trafficDirectionNext = L1->trafficDirectionNext; // Synchronize L2 with L1
-    if (L1->train_detected) {
-        L1->trafficDirection = TrainLogicNode(L1);
-        StateOutput(L1->trafficDirection, &L1->outputL1);
-        TrafficLightTransition(light, i, settings.time - 3, 2);
-        for (int i = 0; i < settings.time; i++) {
-            sleep(settings.peroid);
-        }
+
+    TrafficLight snapshotL1;
+    TrafficLight snapshotL2;
+    Settings timing;
+
+    TrafficState nextL1;
+    TrafficState nextL2 = STATE_ALL_RED;
+
+    pthread_mutex_lock(&light_mutex);
+
+    L2->trafficDirectionNext = L1->trafficDirectionNext;
+
+    snapshotL1 = *L1;
+    snapshotL2 = *L2;
+    timing = settings;
+
+    pthread_mutex_unlock(&light_mutex);
+
+    if (snapshotL1.train_detected) {
+        nextL1 = TrainLogicNode(&snapshotL1);
     } else {
-        L1->trafficDirection = TrafficLogicNode(L1);
-        L2->trafficDirection = TrafficLogicNodeL2(L2);
-        StateOutput(L1->trafficDirection, &L1->outputL1);
-        StateOutput(L2->trafficDirection, &L2->outputL2);
-        TrafficLightTransition(light, i, settings.time - 3, 2);
-        for (int i = 0; i < settings.time; i++) {
-            sleep(settings.peroid);
-            if (L1->train_detected) {
-                break; // Exit the loop if a train is detected
-            }
+        nextL1 = TrafficLogicNode(&snapshotL1);
+        nextL2 = TrafficLogicNodeL2(&snapshotL2);
+    }
+
+    pthread_mutex_lock(&light_mutex);
+
+    L1->trafficDirection = nextL1;
+    StateOutput(nextL1, &L1->outputL1);
+
+    L1->pedestrianCombination =
+        GetPedestrianCombination(&L1->outputL1);
+
+    if (!snapshotL1.train_detected) {
+        L2->trafficDirection = nextL2;
+        StateOutput(nextL2, &L2->outputL2);
+        L2->pedestrianCombination =
+            GetPedestrianCombination(&L2->outputL2);
+    }
+
+    pthread_mutex_unlock(&light_mutex);
+
+    for (int i = 0; i < timing.time; i++) {
+        pthread_mutex_lock(&light_mutex);
+
+        if (!snapshotL1.train_detected && L1->train_detected) {
+            pthread_mutex_unlock(&light_mutex);
+            break;
         }
-        /* Advance after using this group; wrap SE back to NS. */
-        L1->trafficDirectionNext = (TrafficStates)((L1->trafficDirectionNext + 1) % 6);
+        TrafficLightTransition(L1, i, timing.time - 3, 2);
+        pthread_mutex_unlock(&light_mutex);
+        sleep(timing.peroid);
+    }
+    if (!snapshotL1.train_detected) {
+        pthread_mutex_lock(&light_mutex);
+
+        L1->trafficDirectionNext =
+            (TrafficStates)((L1->trafficDirectionNext + 1) % 6);
+        pthread_mutex_unlock(&light_mutex);
     }
 }
+
 void NoControllerStateMachine(void *state_ptr, void *inputs) {
-    // Implement the no-controller state machine logic here
-    // This function will handle the traffic light behavior when there is no controller
     TrafficLight *light = state_ptr;
+    TrafficLight snapshot;
+    Settings timing;
+    TrafficState nextState;
+
     (void)inputs;
-    if (light->train_detected) {
-        light->trafficDirection = TrainLogicNode(light);
-        StateOutput(light->trafficDirection, &light->outputL1);
-        TrafficLightTransition(light, i, settings.time - 3, 2);
-        for (int i = 0; i < settings.time; i++) {
-            sleep(settings.peroid);
-        }
+
+    pthread_mutex_lock(&light_mutex);
+    snapshot = *light;
+    timing = settings;
+    pthread_mutex_unlock(&light_mutex);
+
+    if (snapshot.train_detected) {
+        nextState = TrainLogicNode(&snapshot);
     } else {
-        light->trafficDirection = TrafficLogicNode(light);
-        StateOutput(light->trafficDirection, &light->outputL1);
-        TrafficLightTransition(light, i, settings.time - 3, 2);
-        for (int i = 0; i < settings.time; i++) {
-            sleep(settings.peroid);
-            if (light->train_detected) {
-                break; // Exit the loop if a train is detected
-            }
-        }
-        /* Advance after using this group; wrap SE back to NS. */
-        light->trafficDirectionNext = (TrafficStates)((light->trafficDirectionNext + 1) % 6);
+        nextState = TrafficLogicNode(&snapshot);
+    }
+
+    pthread_mutex_lock(&light_mutex);
+
+    light->trafficDirection = nextState;
+    StateOutput(nextState, &light->outputL1);
+
+    light->pedestrianCombination = GetPedestrianCombination(&light->outputL1);
+
+    pthread_mutex_unlock(&light_mutex);
+
+    for (int i = 0; i < timing.time; i++) {
+        pthread_mutex_lock(&light_mutex);
+
+        if (!snapshot.train_detected && light->train_detected) {
+            pthread_mutex_unlock(&light_mutex);
+            break;
         }
 
+        TrafficLightTransition(light, i, timing.time - 3, 2);
+
+        pthread_mutex_unlock(&light_mutex);
+
+        sleep(timing.peroid);
+    }
+    if (!snapshot.train_detected) {
+        pthread_mutex_lock(&light_mutex);
+
+        light->trafficDirectionNext =
+            (TrafficStates)((light->trafficDirectionNext + 1) % 6);
+
+        pthread_mutex_unlock(&light_mutex);
+    }
 }
 static TrafficState SelectTrafficState(int direction, int Left_NS, int Right_NS,int Top_EW, int Bottom_EW) {
     switch (direction) {
@@ -866,11 +984,11 @@ TrafficState TrafficLogicNodeL2(void *state_ptr) {
 TrafficState TrainLogicNode(void *state_ptr) {
     const TrafficLight *light = state_ptr;
     if (!light) return STATE_ALL_RED;
-    switch (light->trainDirection) {
+    switch (light->trainDirectionNext) {
         case NS:
         case NW:
         case WS:
-            return SelectTrafficState(light->trainDirection, light->buttons.Left_NS, light->buttons.Right_NS, light->buttons.Top_EW, light->buttons.Bottom_EW);
+            return SelectTrafficState(light->trainDirectionNext, light->buttons.Left_NS, light->buttons.Right_NS, light->buttons.Top_EW, light->buttons.Bottom_EW);
         default:
             return STATE_ALL_RED;
     }
@@ -1066,4 +1184,39 @@ PedestrianCombination GetPedestrianCombination(const Movements *output) {
         combination += PED_BEW;
 
     return (PedestrianCombination)combination;
+}
+
+TrafficState MovementsToTrafficState(const Movements *movement)
+{
+    Movements expected;
+
+    for (int state = STATE_NS_SN_Left_NS_Right_NS;
+         state <= STATE_ES_SE_Top_EW_Left_NS;
+         state++) {
+
+        StateOutput((TrafficState)state, &expected);
+
+        if (movement->NE == expected.NE &&
+            movement->NS == expected.NS &&
+            movement->NW == expected.NW &&
+            movement->EN == expected.EN &&
+            movement->ES == expected.ES &&
+            movement->EW == expected.EW &&
+            movement->SN == expected.SN &&
+            movement->SE == expected.SE &&
+            movement->SW == expected.SW &&
+            movement->WN == expected.WN &&
+            movement->WE == expected.WE &&
+            movement->WS == expected.WS &&
+            movement->Left_NS == expected.Left_NS &&
+            movement->Right_NS == expected.Right_NS &&
+            movement->Top_EW == expected.Top_EW &&
+            movement->Bottom_EW == expected.Bottom_EW) {
+
+            return (TrafficState)state;
+        }
+    }
+
+    /* No matching combination. */
+    return STATE_ALL_RED;
 }
