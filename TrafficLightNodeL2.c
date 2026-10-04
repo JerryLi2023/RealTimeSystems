@@ -99,7 +99,6 @@ typedef struct {
     int stateChange;
 } TrafficLight;
 
-
 // Global variables
 Settings settings = {0};
 int train_detected = 0; // Flag to indicate if a train is detected
@@ -112,7 +111,49 @@ void ControllerStateMachine(void *state_ptr, void *inputs);
 void CrossCommunicationStateMachine(void *state_ptr, void *inputs);
 void NoControllerStateMachine(void *state_ptr, void *inputs);
 void StateOutput(TrafficState state, Movements *output);
-#ifndef SAMPLECODE_NO_MAIN
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Universal Client/Server Structures — Shared by L1 and L2
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
+#define L1_L2_ATTACH_POINT "L1_To_L2"
+#define L1_L2_DATA_TYPE    0x25
+#define L1_L2_BUF_SIZE    100
+
+#define L1_L2_SEND_DATA    1
+#define L1_L2_CHANGE_STATE 2
+#define L1_L2_SET_STATE    3
+typedef union {
+    uint32_t sival_int;
+    uint32_t dummy[4];
+} L1_L2_Sigval;
+
+typedef struct {
+    uint16_t type;
+    uint16_t subtype;
+    int8_t code;
+    uint8_t zero[3];
+    L1_L2_Sigval value;
+    uint8_t zero2[2];
+    int32_t scoid;
+} L1_L2_MessageHeader;
+
+typedef struct {
+    L1_L2_MessageHeader hdr;
+    int32_t ClientID;
+    int32_t state;
+} L1_L2_Message;
+
+typedef struct {
+    L1_L2_MessageHeader hdr;
+    ButtonPresses buttons;
+    char buf[L1_L2_BUF_SIZE];
+} L1_L2_Reply;
+
+
+
 int main(void) {
     TrafficLight light = {
         .trafficState = TRAFFIC_GREEN,
@@ -144,7 +185,153 @@ int main(void) {
     NoControllerStateMachine(&light, NULL);
     return 0;
 }
-#endif
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    L2 Server — Receives L1 Commands
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
+/* Uses the condition variable from L2's existing controller client.
+ * Define it once in that program; do not initialise it again here.
+ */
+extern pthread_cond_t controller_cond;
+
+/*
+ * L2: the actual TrafficLight structure on the L2 node.
+ * mutex: the same mutex used by L2's controller client and state machine.
+ */
+int L1_L2_Server(TrafficLight *L2, pthread_mutex_t *mutex)
+{
+    name_attach_t *attach;
+    L1_L2_Message msg = {0};
+
+    union {
+        struct _pulse pulse;
+        L1_L2_Message message;
+    } received;
+
+    int rcvid;
+    int status = EXIT_SUCCESS;
+
+    if ((attach = name_attach(NULL, L1_L2_ATTACH_POINT, 0)) == NULL) {
+        perror("name_attach");
+        return EXIT_FAILURE;
+    }
+
+    printf("Server listening on: %s\n", L1_L2_ATTACH_POINT);
+
+    while (1) {
+        memset(&received, 0, sizeof(received));
+
+        rcvid = MsgReceive(attach->chid, &received,
+                           sizeof(received), NULL);
+
+        if (rcvid == -1) {
+            perror("MsgReceive");
+            status = EXIT_FAILURE;
+            break;
+        }
+
+        if (rcvid == 0) {
+            switch (received.pulse.code) {
+                case _PULSE_CODE_DISCONNECT:
+                    ConnectDetach(received.pulse.scoid);
+                    break;
+
+                case _PULSE_CODE_UNBLOCK:
+                case _PULSE_CODE_COIDDEATH:
+                case _PULSE_CODE_THREADDEATH:
+                default:
+                    break;
+            }
+
+            continue;
+        }
+
+        msg = received.message;
+
+        if (msg.hdr.type == _IO_CONNECT) {
+            MsgReply(rcvid, EOK, NULL, 0);
+            continue;
+        }
+
+        if (msg.hdr.type >= _IO_BASE &&
+            msg.hdr.type <= _IO_MAX) {
+            MsgError(rcvid, ENOSYS);
+            continue;
+        }
+
+        if (msg.hdr.type != L1_L2_DATA_TYPE) {
+            MsgError(rcvid, ENOSYS);
+            continue;
+        }
+
+        L1_L2_Reply reply = {0};
+
+        reply.hdr.type = L1_L2_DATA_TYPE;
+        reply.hdr.subtype = msg.hdr.subtype;
+
+        switch (msg.hdr.subtype) {
+            case L1_L2_SEND_DATA:
+                pthread_mutex_lock(mutex);
+
+                /* Ask L2's controller client to send its cars/buttons. */
+                if (!L2->controllerRequest) {
+                    L2->controllerRequest = 1;
+                    pthread_cond_signal(&controller_cond);
+                }
+
+                /* Also return L2's buttons directly to L1. */
+                reply.buttons = L2->buttons;
+
+                pthread_mutex_unlock(mutex);
+
+                snprintf(reply.buf, sizeof(reply.buf),
+                         "Controller exchange pending; L2 buttons returned");
+                break;
+
+            case L1_L2_SET_STATE:
+                pthread_mutex_lock(mutex);
+
+                /* L1 decides when this fallback command is needed.
+                 * Store the next state without changing the current state.
+                 */
+                L2->controllerDirection = (TrafficState)msg.state;
+
+                pthread_mutex_unlock(mutex);
+
+                snprintf(reply.buf, sizeof(reply.buf),
+                         "L2 next state received");
+                break;
+
+            case L1_L2_CHANGE_STATE:
+                pthread_mutex_lock(mutex);
+
+                /* Request the existing state machine to change only
+                 * if it has not already reached the selected state.
+                 */
+                if (L2->trafficDirection != L2->controllerDirection) {
+                    L2->stateChange = 1;
+                }
+
+                pthread_mutex_unlock(mutex);
+
+                snprintf(reply.buf, sizeof(reply.buf),
+                         "L2 state-change command received");
+                break;
+
+            default:
+                MsgError(rcvid, ENOSYS);
+                continue;
+        }
+
+        MsgReply(rcvid, EOK, &reply, sizeof(reply));
+    }
+
+    name_detach(attach, 0);
+    return status;
+}
 
 void ControllerStateMachine(void *state_ptr, void *inputs) {
     // Implement the controller state machine logic here

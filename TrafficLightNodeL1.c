@@ -10,6 +10,7 @@
 
 pthread_cond_t pedestrian_cond = PTHREAD_COND_INITIALIZER;
 pthread_cond_t controller_cond = PTHREAD_COND_INITIALIZER;
+pthread_cond_t l1_l2_cond = PTHREAD_COND_INITIALIZER;
 
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
@@ -77,8 +78,6 @@ typedef enum {
     EN = 4,
     SE = 5
 } TrafficStates;
-/* Reuse the direction constants; C cannot declare NS/NW/WS twice. */
-typedef TrafficStates TrainState;
 typedef struct {
     int NE, NS, NW;
     int EN, ES, EW;
@@ -113,7 +112,9 @@ typedef struct {
     int train_detected; // Flag to indicate if a train is detected
     int stateChange;
     int pedestrianRequest; // Flag to indicate if there is a pedestrian request
-    int controllerRequest
+    int controllerRequest;
+    int L2SynconisedDataSend;
+    int L2SyconisedStateChange;
 } TrafficLight;
 typedef enum {
     PED_NONE = 0,
@@ -171,6 +172,12 @@ typedef struct {
     uint8_t zero2[2];
     int32_t scoid;
 } Pedestrian_MessageHeader;
+typedef struct {
+    Pedestrian_MessageHeader hdr;
+    int32_t ClientID;
+    PedestrianCombination pedestrianCombination;
+    Settings settings;
+} Pedestrian_Client_data;
 
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
@@ -204,6 +211,16 @@ typedef struct {
     uint8_t zero2[2];
     int32_t scoid;
 } Train_MessageHeader;
+typedef struct {
+    Train_MessageHeader hdr;
+    int32_t ClientID;
+    int32_t trainState;
+} Train_Client_data;
+
+typedef struct {
+    Train_MessageHeader hdr;
+    char buf[TRAIN_BUF_SIZE];
+} Train_Server_Reply;
 
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
@@ -249,35 +266,46 @@ typedef struct {
     int32_t state; /* Carries a TrafficState value. */
 } Controller_L1_StateReply;
 
+
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
-//    Pedestrian Light Client structure
+//    Universal Client/Server Structures — Shared by L1 and L2
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
 
+#define L1_L2_ATTACH_POINT "L1_To_L2"
+#define L1_L2_DATA_TYPE    0x25
+#define L1_L2_BUF_SIZE    100
+
+#define L1_L2_SEND_DATA    1
+#define L1_L2_CHANGE_STATE 2
+#define L1_L2_SET_STATE    3
+typedef union {
+    uint32_t sival_int;
+    uint32_t dummy[4];
+} L1_L2_Sigval;
+
 typedef struct {
-    Pedestrian_MessageHeader hdr;
+    uint16_t type;
+    uint16_t subtype;
+    int8_t code;
+    uint8_t zero[3];
+    L1_L2_Sigval value;
+    uint8_t zero2[2];
+    int32_t scoid;
+} L1_L2_MessageHeader;
+
+typedef struct {
+    L1_L2_MessageHeader hdr;
     int32_t ClientID;
-    PedestrianCombination pedestrianCombination;
-    Settings settings;
-} Pedestrian_Client_data;
-
-
-//------------------------------------------------------------------------------------------------
-// ***********************************************************************************************
-//    Server Structure — Train Status Returned to Client
-// ***********************************************************************************************
-//------------------------------------------------------------------------------------------------
-typedef struct {
-    Train_MessageHeader hdr;
-    int32_t ClientID;
-    int32_t trainState;
-} Train_Client_data;
+    int32_t state;
+} L1_L2_Message;
 
 typedef struct {
-    Train_MessageHeader hdr;
-    char buf[TRAIN_BUF_SIZE];
-} Train_Server_Reply;
+    L1_L2_MessageHeader hdr;
+    ButtonPresses buttons;
+    char buf[L1_L2_BUF_SIZE];
+} L1_L2_Reply;
 
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
@@ -406,6 +434,87 @@ int Train_Traffic_Server(TrainState *trainState, pthread_mutex_t *mutex) {
     }
 
     name_detach(attach, 0);
+    return status;
+}
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    L1 Client — Reads L1 Flags, Stores Buttons and Reads State from L2 Copy
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
+int L1_L2_Client(const char *sname, TrafficLight *L1, TrafficLight *L2, pthread_mutex_t *mutex) {
+    int server_coid;
+    int status = EXIT_SUCCESS;
+
+    if ((server_coid = name_open(sname, 0)) == -1) {
+        perror("name_open");
+        return EXIT_FAILURE;
+    }
+
+    printf("Connection established to: %s\n", sname);
+
+    while (1) {
+        L1_L2_Message msg = {0};
+        L1_L2_Reply reply = {0};
+        int command;
+
+        pthread_mutex_lock(mutex);
+
+        while (!L1->L2SynconisedDataSend && !L1->L2SyconisedStateChange && !L1->L2StateValue) {
+            pthread_cond_wait(&l1_l2_cond, mutex);
+        }
+
+        if (L1->L2SynconisedDataSend) {
+            command = L1_L2_SEND_DATA;
+            L1->L2SynconisedDataSend = 0;
+        } else if (L1->L2StateValue) {
+            /* Send the next-state value before a pending change command. */
+            command = L1_L2_SET_STATE;
+            msg.state = (int32_t)L2->trafficDirection;
+            L1->L2StateValue = 0;
+        } else {
+            command = L1_L2_CHANGE_STATE;
+            L1->L2SyconisedStateChange = 0;
+        }
+
+        pthread_mutex_unlock(mutex);
+
+        msg.ClientID = 1;
+        msg.hdr.type = L1_L2_DATA_TYPE;
+        msg.hdr.subtype = command;
+
+        if (MsgSend(server_coid, &msg, sizeof(msg),
+                    &reply, sizeof(reply)) == -1) {
+            perror("MsgSend");
+
+            /* Leave the failed command pending before exiting. */
+            pthread_mutex_lock(mutex);
+
+            if (command == L1_L2_SEND_DATA)
+                L1->L2SynconisedDataSend = 1;
+            else if (command == L1_L2_SET_STATE)
+                L1->L2StateValue = 1;
+            else
+                L1->L2SyconisedStateChange = 1;
+
+            pthread_mutex_unlock(mutex);
+
+            status = EXIT_FAILURE;
+            break;
+        }
+
+        if (command == L1_L2_SEND_DATA) {
+            /* Store L2 buttons in L1's L2 copy, not in L1's buttons. */
+            pthread_mutex_lock(mutex);
+            L2->buttons = reply.buttons;
+            pthread_mutex_unlock(mutex);
+        }
+
+        printf("L2 reply: %.*s\n", L1_L2_BUF_SIZE, reply.buf);
+    }
+
+    name_close(server_coid);
     return status;
 }
 
