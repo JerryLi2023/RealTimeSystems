@@ -9,7 +9,7 @@
 
 
 pthread_cond_t pedestrian_cond = PTHREAD_COND_INITIALIZER;
-
+pthread_cond_t controller_cond = PTHREAD_COND_INITIALIZER;
 
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
@@ -87,6 +87,13 @@ typedef struct {
     int Left_NS, Right_NS;
     int Top_EW, Bottom_EW;
 } Movements;
+
+typedef struct {
+    int NE, NS, NW;
+    int EN, ES, EW;
+    int SN, SE, SW;
+    int WN, WE, WS;
+} CurrentCars;
 typedef struct {
     int Left_NS, Right_NS;
     int Top_EW, Bottom_EW;
@@ -98,6 +105,7 @@ typedef struct {
     TrafficStates trainDirectionNext;          // The Next State direction of the train
     TrafficState controllerDirection; // Recieved traffic controller from the controller
     TrainState trainDirection;          // The state of the train direction
+    CurrentCars storedDirection;         // Current waiting cars and pedestrians
     Movements outputL1;               // Ouput data to the traffic light L1
     Movements outputL2;               // Ouput data to the traffic light L2
     ButtonPresses buttons;
@@ -105,6 +113,7 @@ typedef struct {
     int train_detected; // Flag to indicate if a train is detected
     int stateChange;
     int pedestrianRequest; // Flag to indicate if there is a pedestrian request
+    int controllerRequest
 } TrafficLight;
 typedef enum {
     PED_NONE = 0,
@@ -195,6 +204,50 @@ typedef struct {
     uint8_t zero2[2];
     int32_t scoid;
 } Train_MessageHeader;
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Universal Client/Server Structures — Shared by Traffic Light and Controller
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
+#define CONTROLLER_L1_ATTACH_POINT "L1_To_Controller"
+#define CONTROLLER_L1_DATA_TYPE    0x24
+#define CONTROLLER_L1_BUF_SIZE     100
+
+#define CONTROLLER_L1_UPDATE_DATA   1
+#define CONTROLLER_L1_REQUEST_STATE 2
+
+typedef union {
+    uint32_t sival_int;
+    uint32_t dummy[4];
+} Controller_L1_Sigval;
+
+typedef struct {
+    uint16_t type;
+    uint16_t subtype;
+    int8_t code;
+    uint8_t zero[3];
+    Controller_L1_Sigval value;
+    uint8_t zero2[2];
+    int32_t scoid;
+} Controller_L1_MessageHeader;
+typedef struct {
+    Controller_L1_MessageHeader hdr;
+    int32_t ClientID;
+    CurrentCars cars;
+    ButtonPresses buttons;
+} Controller_L1_Message;
+
+typedef struct {
+    Controller_L1_MessageHeader hdr;
+    char buf[CONTROLLER_L1_BUF_SIZE];
+} Controller_L1_Acknowledgement;
+
+typedef struct {
+    Controller_L1_MessageHeader hdr;
+    int32_t state; /* Carries a TrafficState value. */
+} Controller_L1_StateReply;
 
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
@@ -356,18 +409,91 @@ int Train_Traffic_Server(TrainState *trainState, pthread_mutex_t *mutex) {
     return status;
 }
 
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Controller L1 Client — Persistent Connection, One Exchange per Request
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
+int Controller_L1_Client(const char *sname, TrafficLight *light, pthread_mutex_t *mutex) {
+    int server_coid;
+    int status = EXIT_SUCCESS;
+
+    printf("Trying to connect to: %s\n", sname);
+
+    /* Open the connection once. */
+    if ((server_coid = name_open(sname, 0)) == -1) {
+        perror("name_open");
+        return EXIT_FAILURE;
+    }
+
+    printf("Connection established to: %s\n", sname);
+
+    while (1) {
+        Controller_L1_Message msg = {0};
+        Controller_L1_Acknowledgement acknowledgement = {0};
+        Controller_L1_StateReply reply = {0};
+
+        pthread_mutex_lock(mutex);
+
+        /* Sleep until another thread requests an exchange. */
+        while (!light->controllerRequest) {
+            pthread_cond_wait(&controller_cond, mutex);
+        }
+
+        msg.cars = light->storedDirection;
+        msg.buttons = light->buttons;
+
+        pthread_mutex_unlock(mutex);
+
+        msg.ClientID = 1;
+        msg.hdr.type = CONTROLLER_L1_DATA_TYPE;
+        msg.hdr.subtype = CONTROLLER_L1_UPDATE_DATA;
+
+        /* First message: send cars and buttons. */
+        if (MsgSend(server_coid, &msg, sizeof(msg),
+                    &acknowledgement, sizeof(acknowledgement)) == -1) {
+            perror("MsgSend");
+            status = EXIT_FAILURE;
+            break;
+        }
+
+        printf("Reply: %.*s\n",
+               CONTROLLER_L1_BUF_SIZE, acknowledgement.buf);
+
+        /* Your requested calculation interval. */
+        sleep(1);
+
+        /* Second message: ask for the calculated L1 state. */
+        msg.hdr.subtype = CONTROLLER_L1_REQUEST_STATE;
+
+        if (MsgSend(server_coid, &msg, sizeof(msg), &reply, sizeof(reply)) == -1) {
+            perror("MsgSend");
+            status = EXIT_FAILURE;
+            break;
+        }
+
+        pthread_mutex_lock(mutex);
+
+        light->controllerDirection = (TrafficState)reply.state;
+        light->controllerRequest = 0; /* This exchange is complete. */
+
+        pthread_mutex_unlock(mutex);
+
+        /* Return to waiting, keeping the connection open. */
+    }
+
+    name_close(server_coid);
+    return status;
+}
 
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
-//    Client Code — Traffic Light Node Only
+//    Client Code for Pedestrian
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
 
-int Pedestrian_Client(const char *sname,
-                      TrafficLight *light,
-                      const Settings *settings,
-                      pthread_mutex_t *mutex)
-{
+int Pedestrian_Client(const char *sname, TrafficLight *light, const Settings *settings, pthread_mutex_t *mutex) {
     int server_coid;
     int status = EXIT_SUCCESS;
 

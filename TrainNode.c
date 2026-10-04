@@ -40,11 +40,6 @@ void *TrainLogicThread(void *state_ptr);
 //    Universal Train Client/Server Structures
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
-typedef enum {
-    TRAIN_NOT_PRESENT = 0,
-    TRAIN_PRESENT = 1,
-    TRAIN_ERROR = 2
-} TrainState;
 
 #define TRAIN_DATA_TYPE     0x23
 #define TRAIN_STATUS_UPDATE 1
