@@ -80,9 +80,13 @@ void ReadExternalButtons(PedstrianButton *buttons);
 void CheckPedestrianButtons(PedstrianLight *light, const PedstrianButton *buttons, PedstrianButton *previous);
 void PedestrianStateOutput(PedestrianCombination state, PedstrianLight *light);
 void *button_checker(void *state_ptr);
-/*------------------------------------------------------------------------------
-    Structure Used for both Client and Server Communication
-*-----------------------------------------------------------------------------*/
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Structure Used for both Client and Server Communication
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
 #define PEDESTRIAN_ATTACH_POINT "Pedestrian"
 #define PEDESTRIAN_DATA_TYPE 0x22
 #define PEDESTRIAN_BUF_SIZE 100
@@ -104,9 +108,13 @@ typedef struct {
     uint8_t zero2[2];
     int32_t scoid;
 } Pedestrian_MessageHeader;
-/*------------------------------------------------------------------------------
-    Server Structure: Pedestrian Light Control System
-*-----------------------------------------------------------------------------*/
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Server Structure: Pedestrian Light Control System
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
 /* Reply to PEDESTRIAN_SET_STATE. */
 typedef struct {
     Pedestrian_MessageHeader hdr;
@@ -119,11 +127,13 @@ typedef struct {
     ButtonPresses buttons;
 } Pedestrian_Button_Reply;
 
-/*------------------------------------------------------------------------------
-    Main Function: Pedestrian Light Control System
-*-----------------------------------------------------------------------------*/
-int main(void)
-{
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Main Function: Pedestrian Light Control System
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
+int main(void) {
     PedstrianLight light = {
         .currentState = PED_LNS, /* Example crossing combination. */
         .lightState = TRAFFIC_RED,
@@ -270,9 +280,12 @@ int Pedestrian_Server(PedstrianLight *light, pthread_mutex_t *mutex)
     return status;
 }
 
-/*------------------------------------------------------------------------------
-    Pedestrian Light Control System Logic
-*-----------------------------------------------------------------------------*/
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Pedestrian Light Control System Logic
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
 /* Placeholder required by your existing button_checker; replace with GPIO later. */
 void ReadExternalButtons(PedstrianButton *buttons)
 {

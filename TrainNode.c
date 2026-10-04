@@ -4,10 +4,17 @@
 #include <unistd.h>
 
 pthread_mutex_t train_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Train node logic structures
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
 typedef enum {
-    TRAIN_NOT_PRESENT,
-    TRAIN_PRESENT,
-    TRAIN_ERROR
+    TRAIN_NOT_PRESENT = 0,
+    TRAIN_PRESENT = 1,
+    TRAIN_ERROR = 2
 } TrainState;
 typedef struct {
     int BoomGate;       // Requested gate position: 0 = down, 1 = up.
@@ -27,6 +34,62 @@ typedef struct {
 void TrainStateLogic(TrainData *trainData);
 void TrainLogicNode(void *state_ptr, void *inputs);
 void *TrainLogicThread(void *state_ptr);
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Universal Train Client/Server Structures
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+typedef enum {
+    TRAIN_NOT_PRESENT = 0,
+    TRAIN_PRESENT = 1,
+    TRAIN_ERROR = 2
+} TrainState;
+
+#define TRAIN_DATA_TYPE     0x23
+#define TRAIN_STATUS_UPDATE 1
+#define TRAIN_BUF_SIZE      100
+
+#define TRAIN_TRAFFIC_ATTACH_POINT    "Train_To_Traffic"
+#define TRAIN_CONTROLLER_ATTACH_POINT "Train_To_Controller"
+
+typedef union {
+    uint32_t sival_int;
+    uint32_t dummy[4];
+} Train_Sigval;
+
+typedef struct {
+    uint16_t type;
+    uint16_t subtype;
+    int8_t code;
+    uint8_t zero[3];
+    Train_Sigval value;
+    uint8_t zero2[2];
+    int32_t scoid;
+} Train_MessageHeader;
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Client Structure — Train Node Sends Its Status
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
+typedef struct {
+    Train_MessageHeader hdr;
+    int32_t ClientID;
+    int32_t trainState;
+} Train_Client_data;
+
+typedef struct {
+    Train_MessageHeader hdr;
+    char buf[TRAIN_BUF_SIZE];
+} Train_Server_Reply;
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Main Function: Train Logic Node
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
 
 int main(void) {
     // Initialize the train data
@@ -70,10 +133,108 @@ int main(void) {
 
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
-//    Code below is for the train logic node, which is separate from the controller and traffic light nodes.
+//    Train-to-Traffic Client
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
 
+/* sname: "/net/<traffic-hostname>/dev/name/local/Train_To_Traffic" */
+int Train_Traffic_Client(const char *sname,
+                         const TrainState *trainState,
+                         pthread_mutex_t *mutex)
+{
+    int server_coid;
+    int status = EXIT_SUCCESS;
+
+    Train_Client_data msg = {0};
+
+    msg.ClientID = 800;
+    msg.hdr.type = TRAIN_DATA_TYPE;
+    msg.hdr.subtype = TRAIN_STATUS_UPDATE;
+
+    if ((server_coid = name_open(sname, 0)) == -1) {
+        perror("name_open");
+        return EXIT_FAILURE;
+    }
+
+    printf("Connection established to: %s\n", sname);
+
+    while (1) {
+        Train_Server_Reply reply = {0};
+
+        /* Read the train node's current status. */
+        pthread_mutex_lock(mutex);
+        msg.trainState = (int32_t)*trainState;
+        pthread_mutex_unlock(mutex);
+
+        if (MsgSend(server_coid, &msg, sizeof(msg),
+                    &reply, sizeof(reply)) == -1) {
+            perror("MsgSend");
+            status = EXIT_FAILURE;
+            break;
+        }
+
+        printf("Reply: %.*s\n", TRAIN_BUF_SIZE, reply.buf);
+
+        sleep(1);
+    }
+
+    name_close(server_coid);
+    return status;
+}
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Train-to-Controller Client
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
+/* sname: "/net/<controller-hostname>/dev/name/local/Train_To_Controller" */
+int Train_Controller_Client(const char *sname, const TrainState *trainState, pthread_mutex_t *mutex){
+    int server_coid;
+    int status = EXIT_SUCCESS;
+
+    Train_Client_data msg = {0};
+
+    msg.ClientID = 800;
+    msg.hdr.type = TRAIN_DATA_TYPE;
+    msg.hdr.subtype = TRAIN_STATUS_UPDATE;
+
+    if ((server_coid = name_open(sname, 0)) == -1) {
+        perror("name_open");
+        return EXIT_FAILURE;
+    }
+
+    printf("Connection established to: %s\n", sname);
+
+    while (1) {
+        Train_Server_Reply reply = {0};
+
+        /* Read the train node's current status. */
+        pthread_mutex_lock(mutex);
+        msg.trainState = (int32_t)*trainState;
+        pthread_mutex_unlock(mutex);
+
+        if (MsgSend(server_coid, &msg, sizeof(msg),
+                    &reply, sizeof(reply)) == -1) {
+            perror("MsgSend");
+            status = EXIT_FAILURE;
+            break;
+        }
+
+        printf("Reply: %.*s\n", TRAIN_BUF_SIZE, reply.buf);
+
+        sleep(1);
+    }
+
+    name_close(server_coid);
+    return status;
+}
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Code below is for the train logic node, which is separate from the controller and traffic light nodes.
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
 
 void TrainStateLogic(TrainData *trainData) {
     // Implement the logic to update the train state based on detection and hardware status

@@ -138,7 +138,7 @@ void StateOutput(TrafficState state, Movements *output);
 
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
-//    Universal Client/Server Structures
+//    Universal Pedestrian Client/Server Structures
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
 
@@ -165,6 +165,39 @@ typedef struct {
 
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
+//    Universal Train Client/Server Structures
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+typedef enum {
+    TRAIN_NOT_PRESENT = 0,
+    TRAIN_PRESENT = 1,
+    TRAIN_ERROR = 2
+} TrainState;
+
+#define TRAIN_DATA_TYPE     0x23
+#define TRAIN_STATUS_UPDATE 1
+#define TRAIN_BUF_SIZE      100
+
+#define TRAIN_TRAFFIC_ATTACH_POINT    "Train_To_Traffic"
+#define TRAIN_CONTROLLER_ATTACH_POINT "Train_To_Controller"
+
+typedef union {
+    uint32_t sival_int;
+    uint32_t dummy[4];
+} Train_Sigval;
+
+typedef struct {
+    uint16_t type;
+    uint16_t subtype;
+    int8_t code;
+    uint8_t zero[3];
+    Train_Sigval value;
+    uint8_t zero2[2];
+    int32_t scoid;
+} Train_MessageHeader;
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
 //    Pedestrian Light Client structure
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
@@ -175,6 +208,23 @@ typedef struct {
     PedestrianCombination pedestrianCombination;
     Settings settings;
 } Pedestrian_Client_data;
+
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Server Structure — Train Status Returned to Client
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+typedef struct {
+    Train_MessageHeader hdr;
+    int32_t ClientID;
+    int32_t trainState;
+} Train_Client_data;
+
+typedef struct {
+    Train_MessageHeader hdr;
+    char buf[TRAIN_BUF_SIZE];
+} Train_Server_Reply;
 
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
@@ -213,6 +263,99 @@ int main(void) {
     NoControllerStateMachine(&light, NULL);
     return 0;
 }
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Train-to-Traffic Server
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
+int Train_Traffic_Server(TrainState *trainState, pthread_mutex_t *mutex) {
+    name_attach_t *attach;
+    Train_Client_data msg = {0};
+
+    union {
+        struct _pulse pulse;
+        Train_Client_data message;
+    } received;
+
+    int rcvid;
+    int status = EXIT_SUCCESS;
+
+    if ((attach = name_attach(NULL,
+                              TRAIN_TRAFFIC_ATTACH_POINT, 0)) == NULL) {
+        perror("name_attach");
+        return EXIT_FAILURE;
+    }
+
+    printf("Server listening on: %s\n", TRAIN_TRAFFIC_ATTACH_POINT);
+
+    while (1) {
+        memset(&received, 0, sizeof(received));
+
+        rcvid = MsgReceive(attach->chid, &received, sizeof(received), NULL);
+
+        if (rcvid == -1) {
+            perror("MsgReceive");
+            status = EXIT_FAILURE;
+            break;
+        }
+
+        if (rcvid == 0) {
+            switch (received.pulse.code) {
+                case _PULSE_CODE_DISCONNECT:
+                    ConnectDetach(received.pulse.scoid);
+                    break;
+
+                case _PULSE_CODE_UNBLOCK:
+                case _PULSE_CODE_COIDDEATH:
+                case _PULSE_CODE_THREADDEATH:
+                default:
+                    break;
+            }
+
+            continue;
+        }
+
+        msg = received.message;
+
+        if (msg.hdr.type == _IO_CONNECT) {
+            MsgReply(rcvid, EOK, NULL, 0);
+            continue;
+        }
+
+        if (msg.hdr.type >= _IO_BASE &&
+            msg.hdr.type <= _IO_MAX) {
+            MsgError(rcvid, ENOSYS);
+            continue;
+        }
+
+        if (msg.hdr.type != TRAIN_DATA_TYPE ||
+            msg.hdr.subtype != TRAIN_STATUS_UPDATE) {
+            MsgError(rcvid, ENOSYS);
+            continue;
+        }
+
+        /* Store the received status on the traffic-light node. */
+        pthread_mutex_lock(mutex);
+        *trainState = (TrainState)msg.trainState;
+        pthread_mutex_unlock(mutex);
+
+        Train_Server_Reply reply = {0};
+
+        reply.hdr.type = TRAIN_DATA_TYPE;
+        reply.hdr.subtype = TRAIN_STATUS_UPDATE;
+
+        snprintf(reply.buf, sizeof(reply.buf),
+                 "Train status received");
+
+        MsgReply(rcvid, EOK, &reply, sizeof(reply));
+    }
+
+    name_detach(attach, 0);
+    return status;
+}
+
 
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
