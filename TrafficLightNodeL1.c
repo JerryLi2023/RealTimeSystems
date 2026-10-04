@@ -6,10 +6,14 @@
 #include <sys/iofunc.h>
 #include <sys/netmgr.h>
 #include <sys/neutrino.h> /* struct _pulse */
-#ifndef BUF_SIZE
 #define BUF_SIZE 100
-#endif
-// State Machine Structure
+
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    State Machine Structure
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
 typedef struct {
     int time;
     int peroid;
@@ -95,15 +99,31 @@ typedef struct {
     Movements outputL1;               // Ouput data to the traffic light L1
     Movements outputL2;               // Ouput data to the traffic light L2
     ButtonPresses buttons;
+    PedestrianCombination pedestrianCombination; // The state of the pedestrian combination
     int train_detected; // Flag to indicate if a train is detected
     int stateChange;
 } TrafficLight;
-
+typedef enum {
+    PED_NONE = 0,
+    PED_LNS = 1,
+    PED_RNS = 2,
+    PED_LNS_RNS = 3,
+    PED_TEW = 4,
+    PED_LNS_TEW = 5,
+    PED_RNS_TEW = 6,
+    PED_LNS_RNS_TEW = 7,
+    PED_BEW = 8,
+    PED_LNS_BEW = 9,
+    PED_RNS_BEW = 10,
+    PED_LNS_RNS_BEW = 11,
+    PED_TEW_BEW = 12,
+    PED_LNS_TEW_BEW = 13,
+    PED_RNS_TEW_BEW = 14,
+    PED_LNS_RNS_TEW_BEW = 15
+} PedestrianCombination;
 
 // Global variables
 Settings settings = {0};
-int train_detected = 0; // Flag to indicate if a train is detected
-int train_state = 0; // Flag to indicate if state machine should remain at train state
 // Function prototypes
 TrafficState TrafficLogicNode(void *state_ptr);
 TrafficState TrafficLogicNodeL2(void *state_ptr);
@@ -113,6 +133,74 @@ void CrossCommunicationStateMachine(void *state_ptr, void *inputs);
 void NoControllerStateMachine(void *state_ptr, void *inputs);
 void StateOutput(TrafficState state, Movements *output);
 
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Universal Client/Server Structures
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
+
+#define PEDESTRIAN_BUF_SIZE 100
+#define PEDESTRIAN_DATA_TYPE 0x22
+
+#define PEDESTRIAN_SET_STATE    1
+#define PEDESTRIAN_REQUEST_DATA 2
+
+typedef union {
+    uint32_t sival_int;
+    uint32_t dummy[4];
+} Pedestrian_Sigval;
+
+typedef struct {
+    uint16_t type;
+    uint16_t subtype;
+    int8_t code;
+    uint8_t zero[3];
+    Pedestrian_Sigval value;
+    uint8_t zero2[2];
+    int32_t scoid;
+} Pedestrian_MessageHeader;
+
+/* Text acknowledgement. */
+typedef struct {
+    Pedestrian_MessageHeader hdr;
+    char buf[PEDESTRIAN_BUF_SIZE];
+} Pedestrian_Reply;
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Pedestrian Light Server structure
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
+typedef struct {
+    Pedestrian_MessageHeader hdr;
+    int32_t ClientID;
+    PedestrianCombination pedestrianCombination;
+    Settings settings;
+} Pedestrian_Client_data;
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Pedestrian Light Client structure
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
+
+#define PEDESTRIAN_ATTACH_POINT "Pedestrian_To_L1"
+
+/* Also used as the reply to PEDESTRIAN_REQUEST_DATA. */
+typedef struct {
+    Pedestrian_MessageHeader hdr;
+    int32_t ClientID;
+    ButtonPresses buttons;
+} Pedestrian_Server_data;
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Main Function
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
 
 int main(void) {
     TrafficLight light = {
@@ -125,7 +213,7 @@ int main(void) {
     };
     /* Example timing: original zero values made the loops run without waiting. */
     settings.time = 5;
-    settings.peroid = 1;
+    settings.period = 1;
 
     while (1) {
         if (controllerConnected) {
@@ -144,6 +232,197 @@ int main(void) {
      */
     NoControllerStateMachine(&light, NULL);
     return 0;
+}
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Pedestrian Light Client Code
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
+int Pedestrian_Client(const char *sname, TrafficLight *light, const Settings *settings, int command, pthread_mutex_t *mutex) {
+    Pedestrian_Client_data msg = {0};
+    Pedestrian_Reply reply = {0};
+
+    int server_coid;
+    int status = EXIT_SUCCESS;
+
+    msg.ClientID = 800;
+    msg.hdr.type = PEDESTRIAN_DATA_TYPE;
+    msg.hdr.subtype = command;
+
+    if (command == PEDESTRIAN_SET_STATE) {
+        pthread_mutex_lock(mutex);
+        msg.pedestrianCombination = light->pedestrianCombination;
+        msg.settings = *settings;
+        pthread_mutex_unlock(mutex);
+    }
+
+    printf("Trying to connect to: %s\n", sname);
+
+    if ((server_coid = name_open(sname, 0)) == -1) {
+        perror("name_open");
+        return EXIT_FAILURE;
+    }
+
+    printf("Connection established to: %s\n", sname);
+
+    if (command == PEDESTRIAN_SET_STATE) {
+        /* Send the pedestrian combination and timing. */
+        if (MsgSend(server_coid, &msg, sizeof(msg),
+                    &reply, sizeof(reply)) == -1) {
+            perror("MsgSend");
+            status = EXIT_FAILURE;
+        } else {
+            printf("Reply: %.*s\n",
+                   PEDESTRIAN_BUF_SIZE, reply.buf);
+        }
+    } else if (command == PEDESTRIAN_REQUEST_DATA) {
+        Pedestrian_Server_data button_reply = {0};
+
+        /* Request the current pedestrian button data. */
+        if (MsgSend(server_coid, &msg, sizeof(msg),
+                    &button_reply, sizeof(button_reply)) == -1) {
+            perror("MsgSend");
+            status = EXIT_FAILURE;
+        } else {
+            pthread_mutex_lock(mutex);
+            light->buttons = button_reply.buttons;
+            pthread_mutex_unlock(mutex);
+
+            printf("Pedestrian button data received\n");
+        }
+    } else {
+        status = EXIT_FAILURE;
+    }
+
+    name_close(server_coid);
+    return status;
+}
+
+
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Pedestrian Light Server Code
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+
+int Pedestrian_Server(TrafficLight *light, pthread_mutex_t *mutex) {
+    name_attach_t *attach;
+
+    Pedestrian_Server_data msg = {0};
+    Pedestrian_Reply replymsg = {0};
+
+    /* Native pulses and application messages share a receive buffer. */
+    union {
+        struct _pulse pulse;
+        Pedestrian_Server_data message;
+    } received;
+
+    int rcvid = 0;
+    int msgnum = 0;
+    int Stay_alive = 0; /* Lab setting: 0 exits on disconnect; 1 continues. */
+    int living = 1;
+    int status = EXIT_SUCCESS;
+
+    replymsg.hdr.type = 0x01;
+    replymsg.hdr.subtype = 0x00;
+
+    /* Register the local server name. */
+    if ((attach = name_attach(NULL,
+                              PEDESTRIAN_ATTACH_POINT, 0)) == NULL) {
+        perror("name_attach");
+        return EXIT_FAILURE;
+    }
+
+    printf("Server listening on: %s\n", PEDESTRIAN_ATTACH_POINT);
+
+    while (living) {
+        memset(&received, 0, sizeof(received));
+
+        rcvid = MsgReceive(attach->chid, &received,
+                           sizeof(received), NULL);
+
+        if (rcvid == -1) {
+            perror("MsgReceive");
+            status = EXIT_FAILURE;
+            break;
+        }
+
+        /* Pulse received. */
+        if (rcvid == 0) {
+            switch (received.pulse.code) {
+                case _PULSE_CODE_DISCONNECT:
+                    ConnectDetach(received.pulse.scoid);
+
+                    if (Stay_alive == 0)
+                        living = 0;
+
+                    break;
+
+                case _PULSE_CODE_UNBLOCK:
+                    printf("Server received an unblock pulse\n");
+                    break;
+
+                case _PULSE_CODE_COIDDEATH:
+                    printf("Server received a connection-death pulse\n");
+                    break;
+
+                case _PULSE_CODE_THREADDEATH:
+                    printf("Server received a thread-death pulse\n");
+                    break;
+
+                default:
+                    break;
+            }
+
+            continue;
+        }
+
+        /* Message received: preserve the lab's msg.field format. */
+        msg = received.message;
+
+        /* Acknowledge the connection message from name_open(). */
+        if (msg.hdr.type == _IO_CONNECT) {
+            MsgReply(rcvid, EOK, NULL, 0);
+            continue;
+        }
+
+        /* Reject other system I/O messages. */
+        if (msg.hdr.type >= _IO_BASE &&
+            msg.hdr.type <= _IO_MAX) {
+            MsgError(rcvid, ENOSYS);
+            continue;
+        }
+
+        if (msg.hdr.type != PEDESTRIAN_DATA_TYPE) {
+            MsgError(rcvid, ENOSYS);
+            continue;
+        }
+
+        /* Update the existing TrafficLight structure. */
+        pthread_mutex_lock(mutex);
+        light->buttons = msg.buttons;
+        pthread_mutex_unlock(mutex);
+
+        msgnum++;
+
+        snprintf(replymsg.buf, PEDESTRIAN_BUF_SIZE,
+                 "Message %d received", msgnum);
+
+        printf("Pedestrian buttons: Left=%d Right=%d Top=%d Bottom=%d\n",
+               msg.buttons.Left_NS,
+               msg.buttons.Right_NS,
+               msg.buttons.Top_EW,
+               msg.buttons.Bottom_EW);
+
+        printf("Replying with: %s\n", replymsg.buf);
+
+        MsgReply(rcvid, EOK, &replymsg, sizeof(replymsg));
+    }
+
+    name_detach(attach, 0);
+    return status;
 }
 
 //------------------------------------------------------------------------------------------------
@@ -495,4 +774,22 @@ void StateOutput(TrafficState state, Movements *output) {
             // All outputs remain zero.
             break;
     }
+}
+
+PedestrianCombination GetPedestrianCombination(const Movements *output) {
+    int combination = PED_NONE;
+
+    if (output->Left_NS)
+        combination += PED_LNS;
+
+    if (output->Right_NS)
+        combination += PED_RNS;
+
+    if (output->Top_EW)
+        combination += PED_TEW;
+
+    if (output->Bottom_EW)
+        combination += PED_BEW;
+
+    return (PedestrianCombination)combination;
 }
