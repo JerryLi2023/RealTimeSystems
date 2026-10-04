@@ -6,7 +6,6 @@
 #include <string.h>
 #include <sys/dispatch.h>
 #include <sys/neutrino.h>
-
 pthread_mutex_t train_mutex = PTHREAD_MUTEX_INITIALIZER;
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
@@ -37,7 +36,7 @@ void TrainLogicNode(void *state_ptr, void *inputs);
 
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
-//    Universal Train Client/Server Structures
+//    Train Client/Server Structures
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
 #define TRAIN_DATA_TYPE     0x23
@@ -72,6 +71,7 @@ typedef struct {
     Train_MessageHeader hdr;
     char buf[TRAIN_BUF_SIZE];
 } Train_Server_Reply;
+
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
 //    Main Function: Train Logic Node
@@ -83,8 +83,8 @@ typedef struct {
     TrainData *trainData;
 } TrainClientThreadArguments;
 
-int Train_Traffic_Client(const char *sname, const TrainState *trainState,pthread_mutex_t *mutex);
-int Train_Controller_Client(const char *sname, const TrainState *trainState,pthread_mutex_t *mutex);
+int Train_Traffic_Client(const char *sname, const TrainState *trainState, pthread_mutex_t *mutex);
+int Train_Controller_Client(const char *sname, const TrainState *trainState, pthread_mutex_t *mutex);
 
 static void *TrainTrafficClientThread(void *argument) {
     TrainClientThreadArguments *args = argument;
@@ -122,8 +122,12 @@ int main(int argc, char **argv) {
     TrainLogicNode(&trainData, NULL);
 
     pthread_t threads[2];
-    TrainClientThreadArguments trafficArgs = {argc > 1 ? argv[1] : TRAIN_TRAFFIC_ATTACH_POINT, &trainData};
-    TrainClientThreadArguments controllerArgs = {argc > 2 ? argv[2] : TRAIN_CONTROLLER_ATTACH_POINT, &trainData};
+    TrainClientThreadArguments trafficArgs = {
+        argc > 1 ? argv[1] : TRAIN_TRAFFIC_ATTACH_POINT, &trainData
+    };
+    TrainClientThreadArguments controllerArgs = {
+        argc > 2 ? argv[2] : TRAIN_CONTROLLER_ATTACH_POINT, &trainData
+    };
 
     int error = pthread_create(&threads[0], NULL,
                                TrainTrafficClientThread, &trafficArgs);
@@ -173,14 +177,15 @@ int main(int argc, char **argv) {
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
 /* sname: "/net/<traffic-hostname>/dev/name/local/Train_To_Traffic" */
-int Train_Traffic_Client(const char *sname,const TrainState *trainState,pthread_mutex_t *mutex){
+int Train_Traffic_Client(const char *sname, const TrainState *trainState, pthread_mutex_t *mutex)
+{
     int server_coid;
     int status = EXIT_SUCCESS;
     Train_Client_data msg = {0};
     msg.ClientID = 800;
     msg.hdr.type = TRAIN_DATA_TYPE;
     msg.hdr.subtype = TRAIN_STATUS_UPDATE;
-    if ((server_coid = name_open(sname, 0)) == -1) {
+    if ((server_coid = name_open(snfame, 0)) == -1) {
         perror("name_open");
         return EXIT_FAILURE;
     }
