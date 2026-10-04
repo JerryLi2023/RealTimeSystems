@@ -2,15 +2,17 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <stdint.h>
+#include <string.h>
+#include <sys/dispatch.h>
+#include <sys/neutrino.h>
 
 pthread_mutex_t train_mutex = PTHREAD_MUTEX_INITIALIZER;
-
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
 //    Train node logic structures
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
-
 typedef enum {
     TRAIN_NOT_PRESENT = 0,
     TRAIN_PRESENT = 1,
@@ -28,31 +30,25 @@ typedef struct {
     TrainState train_state;
     int gate_down_confirmed; // INPUT: 1 only when gate-down feedback is valid.
 } TrainData;
-
 // Caller holds train_mutex while accessing shared TrainData through these functions.
 // The functions do not lock again internally.
 void TrainStateLogic(TrainData *trainData);
 void TrainLogicNode(void *state_ptr, void *inputs);
-void *TrainLogicThread(void *state_ptr);
 
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
 //    Universal Train Client/Server Structures
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
-
 #define TRAIN_DATA_TYPE     0x23
 #define TRAIN_STATUS_UPDATE 1
 #define TRAIN_BUF_SIZE      100
-
 #define TRAIN_TRAFFIC_ATTACH_POINT    "Train_To_Traffic"
 #define TRAIN_CONTROLLER_ATTACH_POINT "Train_To_Controller"
-
 typedef union {
     uint32_t sival_int;
     uint32_t dummy[4];
 } Train_Sigval;
-
 typedef struct {
     uint16_t type;
     uint16_t subtype;
@@ -62,31 +58,57 @@ typedef struct {
     uint8_t zero2[2];
     int32_t scoid;
 } Train_MessageHeader;
-
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
 //    Client Structure — Train Node Sends Its Status
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
-
 typedef struct {
     Train_MessageHeader hdr;
     int32_t ClientID;
     int32_t trainState;
 } Train_Client_data;
-
 typedef struct {
     Train_MessageHeader hdr;
     char buf[TRAIN_BUF_SIZE];
 } Train_Server_Reply;
-
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
 //    Main Function: Train Logic Node
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
+/* Each thread owns its arguments, but both read the same trainData. */
+typedef struct {
+    const char *sname;
+    TrainData *trainData;
+} TrainClientThreadArguments;
 
-int main(void) {
+int Train_Traffic_Client(const char *sname, const TrainState *trainState,pthread_mutex_t *mutex);
+int Train_Controller_Client(const char *sname, const TrainState *trainState,pthread_mutex_t *mutex);
+
+static void *TrainTrafficClientThread(void *argument) {
+    TrainClientThreadArguments *args = argument;
+    for (;;) {
+        Train_Traffic_Client(args->sname, &args->trainData->train_state,
+                             &train_mutex);
+        fprintf(stderr, "Traffic connection ended; retrying in 2 seconds\n");
+        sleep(2);
+    }
+    return NULL;
+}
+
+static void *TrainControllerClientThread(void *argument) {
+    TrainClientThreadArguments *args = argument;
+    for (;;) {
+        Train_Controller_Client(args->sname, &args->trainData->train_state,
+                                &train_mutex);
+        fprintf(stderr, "Controller connection ended; retrying in 2 seconds\n");
+        sleep(2);
+    }
+    return NULL;
+}
+
+int main(int argc, char **argv) {
     // Initialize the train data
     TrainData trainData = {
         .train_detected = 0,
@@ -95,15 +117,35 @@ int main(void) {
         .train_state = TRAIN_NOT_PRESENT,
         .gate_down_confirmed = 0
     };
+    /* Initialise the state and output commands before clients can read them. */
+    TrainStateLogic(&trainData);
+    TrainLogicNode(&trainData, NULL);
+
+    pthread_t threads[2];
+    TrainClientThreadArguments trafficArgs = {argc > 1 ? argv[1] : TRAIN_TRAFFIC_ATTACH_POINT, &trainData};
+    TrainClientThreadArguments controllerArgs = {argc > 2 ? argv[2] : TRAIN_CONTROLLER_ATTACH_POINT, &trainData};
+
+    int error = pthread_create(&threads[0], NULL,
+                               TrainTrafficClientThread, &trafficArgs);
+    if (error != 0) {
+        fprintf(stderr, "pthread_create traffic client: %s\n", strerror(error));
+        return EXIT_FAILURE;
+    }
+    error = pthread_create(&threads[1], NULL,
+                           TrainControllerClientThread, &controllerArgs);
+    if (error != 0) {
+        fprintf(stderr, "pthread_create controller client: %s\n", strerror(error));
+        return EXIT_FAILURE;
+    }
+
+    /* Main keeps trainData and both argument structures alive indefinitely. */
     while (1) {
         pthread_mutex_lock(&train_mutex);
-
         // MANUAL TEST INPUTS: uncomment/change values here.
         // 1 = train detected, a hardware fault, or confirmed gate down respectively.
         // trainData.train_detected = 1;
         // trainData.hardware_error = 0;
         // trainData.gate_down_confirmed = 0;
-
         // Select the state, then store the resulting output commands.
         TrainStateLogic(&trainData);
         TrainLogicNode(&trainData, NULL);
@@ -125,112 +167,83 @@ int main(void) {
         usleep(500000); // 500 ms
     }
 }
-
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
 //    Train-to-Traffic Client
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
-
 /* sname: "/net/<traffic-hostname>/dev/name/local/Train_To_Traffic" */
-int Train_Traffic_Client(const char *sname,
-                         const TrainState *trainState,
-                         pthread_mutex_t *mutex)
-{
+int Train_Traffic_Client(const char *sname,const TrainState *trainState,pthread_mutex_t *mutex){
     int server_coid;
     int status = EXIT_SUCCESS;
-
     Train_Client_data msg = {0};
-
     msg.ClientID = 800;
     msg.hdr.type = TRAIN_DATA_TYPE;
     msg.hdr.subtype = TRAIN_STATUS_UPDATE;
-
     if ((server_coid = name_open(sname, 0)) == -1) {
         perror("name_open");
         return EXIT_FAILURE;
     }
-
     printf("Connection established to: %s\n", sname);
-
     while (1) {
         Train_Server_Reply reply = {0};
-
         /* Read the train node's current status. */
         pthread_mutex_lock(mutex);
         msg.trainState = (int32_t)*trainState;
         pthread_mutex_unlock(mutex);
-
         if (MsgSend(server_coid, &msg, sizeof(msg),
                     &reply, sizeof(reply)) == -1) {
             perror("MsgSend");
             status = EXIT_FAILURE;
             break;
         }
-
         printf("Reply: %.*s\n", TRAIN_BUF_SIZE, reply.buf);
-
         sleep(1);
     }
-
     name_close(server_coid);
     return status;
 }
-
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
 //    Train-to-Controller Client
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
-
 /* sname: "/net/<controller-hostname>/dev/name/local/Train_To_Controller" */
 int Train_Controller_Client(const char *sname, const TrainState *trainState, pthread_mutex_t *mutex){
     int server_coid;
     int status = EXIT_SUCCESS;
-
     Train_Client_data msg = {0};
-
     msg.ClientID = 800;
     msg.hdr.type = TRAIN_DATA_TYPE;
     msg.hdr.subtype = TRAIN_STATUS_UPDATE;
-
     if ((server_coid = name_open(sname, 0)) == -1) {
         perror("name_open");
         return EXIT_FAILURE;
     }
-
     printf("Connection established to: %s\n", sname);
-
     while (1) {
         Train_Server_Reply reply = {0};
-
         /* Read the train node's current status. */
         pthread_mutex_lock(mutex);
         msg.trainState = (int32_t)*trainState;
         pthread_mutex_unlock(mutex);
-
         if (MsgSend(server_coid, &msg, sizeof(msg),
                     &reply, sizeof(reply)) == -1) {
             perror("MsgSend");
             status = EXIT_FAILURE;
             break;
         }
-
         printf("Reply: %.*s\n", TRAIN_BUF_SIZE, reply.buf);
-
         sleep(1);
     }
-
     name_close(server_coid);
     return status;
 }
-
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
 //    Code below is for the train logic node, which is separate from the controller and traffic light nodes.
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
-
 void TrainStateLogic(TrainData *trainData) {
     // Implement the logic to update the train state based on detection and hardware status
     if (trainData->hardware_error) {
@@ -241,7 +254,6 @@ void TrainStateLogic(TrainData *trainData) {
         trainData->train_state = TRAIN_NOT_PRESENT;
     }
 }
-
 void TrainLogicNode(void *state_ptr, void *inputs) {
     (void)inputs;
     TrainData *trainData = state_ptr;

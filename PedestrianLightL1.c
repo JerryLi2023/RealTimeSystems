@@ -161,7 +161,7 @@ int main(void)
     pthread_condattr_t attr;
     int error;
 
-    /* Monotonic timing is unaffected by changes to the wall clock. */
+    // Creates the thread a
     error = pthread_condattr_init(&attr);
     if (error != 0) {
         fprintf(stderr, "pthread_condattr_init: %s\n", strerror(error));
