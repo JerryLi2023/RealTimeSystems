@@ -162,7 +162,6 @@ typedef struct {
     int32_t scoid;
 } Train_MessageHeader;
 
-
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
 //    Server Structure — Train Status Returned to Client
@@ -507,7 +506,7 @@ int Controller_L1_Server(Intersection *intersection,
 
 #################################################################################
 #################################################################################
-*/ 
+*/
 
 // Called directly by main; calculates and stores outputs without sleeping.
 void StateMachine(void *L1_data, void *L2_data, void *settings_data) {

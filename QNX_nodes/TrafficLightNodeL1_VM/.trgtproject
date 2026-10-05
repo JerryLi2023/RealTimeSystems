@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<trgtproject id="com.qnx.tools.ide.target.core.target">
+    <data>
+        <item id="com.qnx.tools.ide.target">
+            <project>
+                <name value="TrafficLightNodeL1_VM"/>
+            </project>
+            <connection>
+                <HASVERSION value="1"/>
+                <VERSION value="2017/02/14-16:01:20EST"/>
+                <RELEASE value="7.0.0"/>
+                <SYSNAME value="QNX"/>
+                <QCONN_VERSION value="1.4.207944"/>
+                <ENDIAN value="le"/>
+                <NUM_SRVCS value="1"/>
+                <ARCHITECTURE value="x86_64"/>
+                <CPU value="x86_64"/>
+                <HOSTNAME value="VM_x86_TrafficLightNodeL1"/>
+                <OS value="nto"/>
+                <DOMAIN value="net.intra"/>
+                <MACHINE value="x86pc"/>
+            </connection>
+            <qconnport value="8000"/>
+            <qconnostype value="nto"/>
+            <qconnguid value="3f071485-02c1-4ae3-a201-b8aabef193a2"/>
+            <qconnhostname value="192.168.12.132"/>
+            <targettmpdir value="/tmp"/>
+        </item>
+    </data>
+</trgtproject>
