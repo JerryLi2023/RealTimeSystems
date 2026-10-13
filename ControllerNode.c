@@ -5,13 +5,11 @@
 #include <errno.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <time.h>
+#include <limits.h>
 #include <sys/dispatch.h>
 #include <sys/neutrino.h>
 #include <sys/iomsg.h>
-
-
-// Logic  Definitions for the traffic light controller node. This file contains the main logic for controlling the traffic lights at two intersections (L1 and L2) based on input from sensors and settings.
-// Logic Structures and enumerations for the traffic light controller node. This file defines the data structures and enumerations used in the traffic light controller logic, including settings, movements, route indices, intersections, and states.
 
 typedef enum {
     // North_South
@@ -57,7 +55,6 @@ typedef enum {
     STATE_ES_SE_SN_Left_NS = 32,
     STATE_ES_SE_Top_EW_Left_NS = 33
 } TrafficState;
-
 typedef struct {
     int NE, NS, NW;
     int EN, ES, EW;
@@ -68,7 +65,6 @@ typedef struct {
     int Left_NS, Right_NS;
     int Top_EW, Bottom_EW;
 } ButtonPresses;
-
 #define MAX_PRIORITY (INT_MAX / 8)
 typedef struct {
     int time;
@@ -113,7 +109,6 @@ typedef struct {
 enum states {L1_NS_and_L2_NS, L1_EW_and_L2_EW, L1_NW_and_L2_SE, L1_WS_and_L2_EN, L1_EN_and_L2_NW, L1_SE_and_L2_EW, L1_SW_and_L2_WS, L1_WE_and_L2_NW, L1_WE_and_L2_WS, L1_EN_and_L2_EW, CONTROLLER_HOLD};
 enum states CurState = CONTROLLER_HOLD;
 enum states RequestedState = CONTROLLER_HOLD;
-
 void Find_Maximum_Index(const int *array, int size, int *max_index);
 void Calculate_Route_Scores(Intersection *light);
 enum states TrafficLight_Logics(Intersection *L1, Intersection *L2);
@@ -129,7 +124,6 @@ static void Register_Inputs(Intersection *light);
 void Update_Waiting_Priorities(Intersection *light);
 static void Update_One_Priority(int *priority, int pending);
 void StateMachine(void *L1_data, void *L2_data, void *settings_data);
-
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
 //    Universal Train Client/Server Structures
@@ -140,14 +134,11 @@ typedef enum {
     TRAIN_PRESENT = 1,
     TRAIN_ERROR = 2
 } TrainState;
-
 #define TRAIN_DATA_TYPE     0x23
 #define TRAIN_STATUS_UPDATE 1
 #define TRAIN_BUF_SIZE      100
-
 #define TRAIN_TRAFFIC_ATTACH_POINT    "Train_To_Traffic"
 #define TRAIN_CONTROLLER_ATTACH_POINT "Train_To_Controller"
-
 typedef union {
     uint32_t sival_int;
     uint32_t dummy[4];
@@ -161,14 +152,11 @@ typedef struct {
     uint8_t zero2[2];
     int32_t scoid;
 } Train_MessageHeader;
-
-
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
 //    Server Structure — Train Status Returned to Client
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
-
 typedef struct {
     Train_MessageHeader hdr;
     int32_t ClientID;
@@ -178,24 +166,20 @@ typedef struct {
     Train_MessageHeader hdr;
     char buf[TRAIN_BUF_SIZE];
 } Train_Server_Reply;
-
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
 //    Universal Client/Server Structures — Shared by Traffic Light and Controller
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
-
 #define CONTROLLER_L1_ATTACH_POINT "L1_To_Controller"
 #define CONTROLLER_L1_DATA_TYPE    0x24
 #define CONTROLLER_L1_BUF_SIZE     100
-
 #define CONTROLLER_L1_UPDATE_DATA   1
 #define CONTROLLER_L1_REQUEST_STATE 2
 typedef union {
     uint32_t sival_int;
     uint32_t dummy[4];
 } Controller_L1_Sigval;
-
 typedef struct {
     uint16_t type;
     uint16_t subtype;
@@ -205,310 +189,497 @@ typedef struct {
     uint8_t zero2[2];
     int32_t scoid;
 } Controller_L1_MessageHeader;
-
 typedef struct {
     Controller_L1_MessageHeader hdr;
     int32_t ClientID;
     CurrentCars cars;
     ButtonPresses buttons;
 } Controller_L1_Message;
-
 typedef struct {
     Controller_L1_MessageHeader hdr;
     char buf[CONTROLLER_L1_BUF_SIZE];
 } Controller_L1_Acknowledgement;
-
 typedef struct {
     Controller_L1_MessageHeader hdr;
     int32_t state; /* Carries a TrafficState value. */
 } Controller_L1_StateReply;
-
+#define CONTROLLER_L2_ATTACH_POINT "L2_To_Controller"
+#define CONTROLLER_L2_DATA_TYPE    0x24
+#define CONTROLLER_L2_BUF_SIZE     100
+#define CONTROLLER_L2_UPDATE_DATA   1
+#define CONTROLLER_L2_REQUEST_STATE 2
+typedef union {
+    uint32_t sival_int;
+    uint32_t dummy[4];
+} Controller_L2_Sigval;
+typedef struct {
+    uint16_t type;
+    uint16_t subtype;
+    int8_t code;
+    uint8_t zero[3];
+    Controller_L2_Sigval value;
+    uint8_t zero2[2];
+    int32_t scoid;
+} Controller_L2_MessageHeader;
+typedef struct {
+    Controller_L2_MessageHeader hdr;
+    int32_t ClientID;
+    CurrentCars cars;
+    ButtonPresses buttons;
+} Controller_L2_Message;
+typedef struct {
+    Controller_L2_MessageHeader hdr;
+    char buf[CONTROLLER_L2_BUF_SIZE];
+} Controller_L2_Acknowledgement;
+typedef struct {
+    Controller_L2_MessageHeader hdr;
+    int32_t state; /* Carries a TrafficState value. */
+} Controller_L2_StateReply;
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
 //    Main Function: Controller Logic Node
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
+// Server declarations are needed because their definitions are below main.
+int Controller_L1_Server(Intersection *intersection, pthread_mutex_t *mutex);
+int Controller_L2_Server(Intersection *intersection, pthread_mutex_t *mutex);
+int Train_Controller_Server(TrainState *trainState, pthread_mutex_t *mutex);
 
-int main(void) {
-    printf("Controller logic running\n");
+typedef struct {
+    Intersection *intersection;
+    TrainState *trainState;
+    pthread_mutex_t *mutex;
+} ControllerServerArguments;
 
-    Intersection L1 = {0};
-    Intersection L2 = {0};
-    Settings settings = {
-        .time = 5,
-        .peroid = 1,       // Original field spelling retained.
-        .train_detected = 0, // Manual test: no train present.
-        .hardware_error = 0
-    };
-
-    // MANUAL TEST INPUTS: uncomment/change these before running.
-    // L1.input.NS = 1;
-    // L1.input.SN = 1;
-    // L2.input.NS = 1;
-    // L2.input.SN = 1;
-    // With all inputs zero, the controller selects HOLD and outputs stay zero.
-
-    while (1) {
-        // Put any single-threaded input updates here, before calculating.
-        StateMachine(&L1, &L2, &settings);
-
-        // Results are already saved in these existing variables:
-        // CurState  : selected combined route (or CONTROLLER_HOLD).
-        // L1.best / L2.best : best variant index within each route group.
-        // L1.output / L2.output : selected movements, each set to 0 or 1.
-        // Inspect them in the debugger or use them here.
-
-        usleep(100000); // Recheck every 100 ms; priorities age separately.
-    }
-
-    return EXIT_SUCCESS;
+// Each wrapper runs one existing server in its own thread.
+static void *ControllerL1ServerThread(void *argument) {
+    ControllerServerArguments *args = argument;
+    Controller_L1_Server(args->intersection, args->mutex);
+    return NULL;
 }
 
+static void *ControllerL2ServerThread(void *argument) {
+    ControllerServerArguments *args = argument;
+    Controller_L2_Server(args->intersection, args->mutex);
+    return NULL;
+}
 
+static void *ControllerTrainServerThread(void *argument) {
+    ControllerServerArguments *args = argument;
+    Train_Controller_Server(args->trainState, args->mutex);
+    return NULL;
+}
+
+// Convert the existing movement outputs into the state returned to each client.
+static TrafficState ControllerOutputToState(const Movements *output) {
+    static const Movements combinations[] = {
+        [STATE_NS_SN_Left_NS_Right_NS] = {.NS = 1, .SN = 1, .Left_NS = 1, .Right_NS = 1},
+        [STATE_NS_SN_NE_Left_NS] = {.NS = 1, .SN = 1, .NE = 1, .Left_NS = 1},
+        [STATE_NS_SN_SW_Right_NS] = {.NS = 1, .SN = 1, .SW = 1, .Right_NS = 1},
+        [STATE_NS_SN_NE_SW] = {.NS = 1, .SN = 1, .NE = 1, .SW = 1},
+        [STATE_NE_SW_WS_WN] = {.NE = 1, .SW = 1, .WS = 1, .WN = 1},
+        [STATE_WS_SW_WN_WE] = {.WS = 1, .SW = 1, .WN = 1, .WE = 1},
+        [STATE_SW_WS_WN_Right_NS] = {.SW = 1, .WS = 1, .WN = 1, .Right_NS = 1},
+        [STATE_SW_WS_WE_Top_EW] = {.SW = 1, .WS = 1, .WE = 1, .Top_EW = 1},
+        [STATE_SW_WS_Top_EW_Right_NS] = {.SW = 1, .WS = 1, .Top_EW = 1, .Right_NS = 1},
+        [STATE_NW_WN_NS_NE] = {.NW = 1, .WN = 1, .NS = 1, .NE = 1},
+        [STATE_NW_WN_NE_ES] = {.NW = 1, .WN = 1, .NE = 1, .ES = 1},
+        [STATE_NW_WN_NE_Bottom_EW] = {.NW = 1, .WN = 1, .NE = 1, .Bottom_EW = 1},
+        [STATE_NW_WN_NS_Right_NS] = {.NW = 1, .WN = 1, .NS = 1, .Right_NS = 1},
+        [STATE_NW_WN_Bottom_EW_Right_NS] = {.NW = 1, .WN = 1, .Bottom_EW = 1, .Right_NS = 1},
+        [STATE_EW_WE_WN_ES] = {.EW = 1, .WE = 1, .WN = 1, .ES = 1},
+        [STATE_EW_WE_WN_Bottom_EW] = {.EW = 1, .WE = 1, .WN = 1, .Bottom_EW = 1},
+        [STATE_EW_WE_ES_Top_EW] = {.EW = 1, .WE = 1, .ES = 1, .Top_EW = 1},
+        [STATE_EW_WE_Top_EW_Bottom_EW] = {.EW = 1, .WE = 1, .Top_EW = 1, .Bottom_EW = 1},
+        [STATE_NE_ES_EN_SW] = {.NE = 1, .ES = 1, .EN = 1, .SW = 1},
+        [STATE_NE_ES_EN_EW] = {.NE = 1, .ES = 1, .EN = 1, .EW = 1},
+        [STATE_NE_ES_EN_Bottom_EW] = {.NE = 1, .ES = 1, .EN = 1, .Bottom_EW = 1},
+        [STATE_NE_EW_EN_Bottom_EW] = {.NE = 1, .EW = 1, .EN = 1, .Bottom_EW = 1},
+        [STATE_NE_Top_EW_EN_Bottom_EW] = {.NE = 1, .Top_EW = 1, .EN = 1, .Bottom_EW = 1},
+        [STATE_ES_SE_SW_WN] = {.ES = 1, .SE = 1, .SW = 1, .WN = 1},
+        [STATE_ES_SE_SW_SN] = {.ES = 1, .SE = 1, .SW = 1, .SN = 1},
+        [STATE_ES_SE_SW_Bottom_EW] = {.ES = 1, .SE = 1, .SW = 1, .Bottom_EW = 1},
+        [STATE_ES_SE_SN_Bottom_EW] = {.ES = 1, .SE = 1, .SN = 1, .Bottom_EW = 1},
+        [STATE_ES_SE_Top_EW_Bottom_EW] = {.ES = 1, .SE = 1, .Top_EW = 1, .Bottom_EW = 1},
+        [STATE_ALL_RED] = {0},
+        [STATE_NE_ES_EN_Left_NS] = {.NE = 1, .ES = 1, .EN = 1, .Left_NS = 1},
+        [STATE_NE_EN_Bottom_EW_Left_NS] = {.NE = 1, .EN = 1, .Bottom_EW = 1, .Left_NS = 1},
+        [STATE_ES_SE_SW_Top_EW] = {.ES = 1, .SE = 1, .SW = 1, .Top_EW = 1},
+        [STATE_ES_SE_SN_Left_NS] = {.ES = 1, .SE = 1, .SN = 1, .Left_NS = 1},
+        [STATE_ES_SE_Top_EW_Left_NS] = {.ES = 1, .SE = 1, .Top_EW = 1, .Left_NS = 1},
+    };
+    for (int state = 0; state < (int)(sizeof(combinations) / sizeof(combinations[0])); state++) {
+        const Movements *candidate = &combinations[state];
+        if (output->NE == candidate->NE
+            && output->NS == candidate->NS
+            && output->NW == candidate->NW
+            && output->EN == candidate->EN
+            && output->ES == candidate->ES
+            && output->EW == candidate->EW
+            && output->SN == candidate->SN
+            && output->SE == candidate->SE
+            && output->SW == candidate->SW
+            && output->WN == candidate->WN
+            && output->WE == candidate->WE
+            && output->WS == candidate->WS
+            && output->Left_NS == candidate->Left_NS
+            && output->Right_NS == candidate->Right_NS
+            && output->Top_EW == candidate->Top_EW
+            && output->Bottom_EW == candidate->Bottom_EW)
+            return (TrafficState)state;
+    }
+    return STATE_ALL_RED;
+}
+
+int main(void) {
+    Intersection L1 = {0};
+    Intersection L2 = {0};
+    Settings settings = {.time = 15, .peroid = 1};
+    TrainState trainState = TRAIN_NOT_PRESENT;
+    pthread_mutex_t controller_mutex = PTHREAD_MUTEX_INITIALIZER;
+    pthread_t threads[3]; // Three server threads; main runs the controller logic.
+    int error;
+
+    // No route is selected until the controller has calculated one.
+    L1.statesL1 = L1.statesL2 = STATE_ALL_RED;
+    L2.statesL1 = L2.statesL2 = STATE_ALL_RED;
+
+    // Pass each server its own intersection and the same mutex.
+    ControllerServerArguments arguments[3] = {
+        {&L1, &trainState, &controller_mutex},
+        {&L2, &trainState, &controller_mutex},
+        {NULL, &trainState, &controller_mutex}
+    };
+    void *(*serverFunctions[3])(void *) = {
+        ControllerL1ServerThread,
+        ControllerL2ServerThread,
+        ControllerTrainServerThread
+    };
+
+    for (int i = 0; i < 3; i++) {
+        error = pthread_create(&threads[i], NULL, serverFunctions[i], &arguments[i]);
+        if (error != 0) {
+            fprintf(stderr, "pthread_create server %d: %s\n", i, strerror(error));
+            return EXIT_FAILURE;
+        }
+    }
+
+    printf("Controller running: L1, L2 and train servers\n");
+    for (;;) {
+        // Protect the inputs while calculating and publishing both next states.
+        pthread_mutex_lock(&controller_mutex);
+        settings.train_detected = (trainState == TRAIN_PRESENT);
+        settings.hardware_error = (trainState == TRAIN_ERROR) ||
+                                  L1.hardware_error || L2.hardware_error;
+        L1.train_detected = L2.train_detected = settings.train_detected;
+
+        // Keep your existing priority and route-selection logic.
+        StateMachine(&L1, &L2, &settings);
+
+        // The servers read these fields when their clients request a state.
+        L1.statesL1 = ControllerOutputToState(&L1.output);
+        L2.statesL2 = ControllerOutputToState(&L2.output);
+        pthread_mutex_unlock(&controller_mutex);
+
+        // Existing 100 ms update interval; the mutex is released while sleeping.
+        usleep(100000);
+    }
+    return EXIT_SUCCESS;
+}
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
 //    Train-to-Controller Server — Runs on Controller Node
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
-
 int Train_Controller_Server(TrainState *trainState, pthread_mutex_t *mutex) {
     name_attach_t *attach;
     Train_Client_data msg = {0};
-
     union {
         struct _pulse pulse;
         Train_Client_data message;
     } received;
-
     int rcvid;
     int status = EXIT_SUCCESS;
-
     if ((attach = name_attach(NULL,
                               TRAIN_CONTROLLER_ATTACH_POINT, 0)) == NULL) {
         perror("name_attach");
         return EXIT_FAILURE;
     }
-
     printf("Server listening on: %s\n", TRAIN_CONTROLLER_ATTACH_POINT);
-
     while (1) {
         memset(&received, 0, sizeof(received));
-
         rcvid = MsgReceive(attach->chid, &received,
                            sizeof(received), NULL);
-
         if (rcvid == -1) {
             perror("MsgReceive");
             status = EXIT_FAILURE;
             break;
         }
-
         if (rcvid == 0) {
             switch (received.pulse.code) {
                 case _PULSE_CODE_DISCONNECT:
                     ConnectDetach(received.pulse.scoid);
                     break;
-
                 case _PULSE_CODE_UNBLOCK:
                 case _PULSE_CODE_COIDDEATH:
                 case _PULSE_CODE_THREADDEATH:
                 default:
                     break;
             }
-
             continue;
         }
-
         msg = received.message;
-
         if (msg.hdr.type == _IO_CONNECT) {
             MsgReply(rcvid, EOK, NULL, 0);
             continue;
         }
-
         if (msg.hdr.type >= _IO_BASE &&
             msg.hdr.type <= _IO_MAX) {
             MsgError(rcvid, ENOSYS);
             continue;
         }
-
         if (msg.hdr.type != TRAIN_DATA_TYPE ||
             msg.hdr.subtype != TRAIN_STATUS_UPDATE) {
             MsgError(rcvid, ENOSYS);
             continue;
         }
-
         /* Store the received status on the controller node. */
         pthread_mutex_lock(mutex);
         *trainState = (TrainState)msg.trainState;
         pthread_mutex_unlock(mutex);
-
         Train_Server_Reply reply = {0};
-
         reply.hdr.type = TRAIN_DATA_TYPE;
         reply.hdr.subtype = TRAIN_STATUS_UPDATE;
-
         snprintf(reply.buf, sizeof(reply.buf),
                  "Train status received");
-
         MsgReply(rcvid, EOK, &reply, sizeof(reply));
     }
-
     name_detach(attach, 0);
     return status;
 }
-
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
 //    Controller Server — Receives L1 Data and Returns statesL1
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
-
 int Controller_L1_Server(Intersection *intersection,
                          pthread_mutex_t *mutex)
 {
     name_attach_t *attach;
     Controller_L1_Message msg = {0};
-
     union {
         struct _pulse pulse;
         Controller_L1_Message message;
     } received;
-
     int rcvid;
     int status = EXIT_SUCCESS;
-
     if ((attach = name_attach(NULL,
                               CONTROLLER_L1_ATTACH_POINT, 0)) == NULL) {
         perror("name_attach");
         return EXIT_FAILURE;
     }
-
     printf("Server listening on: %s\n", CONTROLLER_L1_ATTACH_POINT);
-
     while (1) {
         memset(&received, 0, sizeof(received));
-
         rcvid = MsgReceive(attach->chid, &received,
                            sizeof(received), NULL);
-
         if (rcvid == -1) {
             perror("MsgReceive");
             status = EXIT_FAILURE;
             break;
         }
-
         /* Handle native QNX pulses. */
         if (rcvid == 0) {
             switch (received.pulse.code) {
                 case _PULSE_CODE_DISCONNECT:
                     ConnectDetach(received.pulse.scoid);
                     break;
-
                 case _PULSE_CODE_UNBLOCK:
                 case _PULSE_CODE_COIDDEATH:
                 case _PULSE_CODE_THREADDEATH:
                 default:
                     break;
             }
-
             continue;
         }
-
         msg = received.message;
-
         if (msg.hdr.type == _IO_CONNECT) {
             MsgReply(rcvid, EOK, NULL, 0);
             continue;
         }
-
         if (msg.hdr.type >= _IO_BASE &&
             msg.hdr.type <= _IO_MAX) {
             MsgError(rcvid, ENOSYS);
             continue;
         }
-
         if (msg.hdr.type != CONTROLLER_L1_DATA_TYPE) {
             MsgError(rcvid, ENOSYS);
             continue;
         }
-
         switch (msg.hdr.subtype) {
             case CONTROLLER_L1_UPDATE_DATA: {
                 Controller_L1_Acknowledgement reply = {0};
-
                 pthread_mutex_lock(mutex);
-
                 /* Copy waiting cars into the controller's input. */
                 intersection->input.NE = msg.cars.NE;
                 intersection->input.NS = msg.cars.NS;
                 intersection->input.NW = msg.cars.NW;
-
                 intersection->input.EN = msg.cars.EN;
                 intersection->input.ES = msg.cars.ES;
                 intersection->input.EW = msg.cars.EW;
-
                 intersection->input.SN = msg.cars.SN;
                 intersection->input.SE = msg.cars.SE;
                 intersection->input.SW = msg.cars.SW;
-
                 intersection->input.WN = msg.cars.WN;
                 intersection->input.WE = msg.cars.WE;
                 intersection->input.WS = msg.cars.WS;
-
                 /* Copy pedestrian requests into the same input. */
                 intersection->input.Left_NS = msg.buttons.Left_NS;
                 intersection->input.Right_NS = msg.buttons.Right_NS;
                 intersection->input.Top_EW = msg.buttons.Top_EW;
                 intersection->input.Bottom_EW = msg.buttons.Bottom_EW;
-
                 pthread_mutex_unlock(mutex);
-
                 /* Existing controller logic calculates statesL1 separately. */
                 reply.hdr.type = CONTROLLER_L1_DATA_TYPE;
                 reply.hdr.subtype = CONTROLLER_L1_UPDATE_DATA;
-
                 snprintf(reply.buf, sizeof(reply.buf),
                          "L1 cars and buttons received");
-
                 MsgReply(rcvid, EOK, &reply, sizeof(reply));
                 break;
             }
-
             case CONTROLLER_L1_REQUEST_STATE: {
                 Controller_L1_StateReply reply = {0};
-
                 reply.hdr.type = CONTROLLER_L1_DATA_TYPE;
                 reply.hdr.subtype = CONTROLLER_L1_REQUEST_STATE;
-
                 pthread_mutex_lock(mutex);
                 reply.state = (int32_t)intersection->statesL1;
                 pthread_mutex_unlock(mutex);
-
                 MsgReply(rcvid, EOK, &reply, sizeof(reply));
                 break;
             }
-
             default:
                 MsgError(rcvid, ENOSYS);
                 break;
         }
     }
-
     name_detach(attach, 0);
     return status;
 }
-
+//------------------------------------------------------------------------------------------------
+// ***********************************************************************************************
+//    Controller L2 Server — Same Message Format, Returns statesL2
+// ***********************************************************************************************
+//------------------------------------------------------------------------------------------------
+int Controller_L2_Server(Intersection *intersection,
+                         pthread_mutex_t *mutex)
+{
+    name_attach_t *attach;
+    Controller_L2_Message msg = {0};
+    union {
+        struct _pulse pulse;
+        Controller_L2_Message message;
+    } received;
+    int rcvid;
+    int status = EXIT_SUCCESS;
+    if ((attach = name_attach(NULL,
+                              CONTROLLER_L2_ATTACH_POINT, 0)) == NULL) {
+        perror("name_attach");
+        return EXIT_FAILURE;
+    }
+    printf("Server listening on: %s\n", CONTROLLER_L2_ATTACH_POINT);
+    while (1) {
+        memset(&received, 0, sizeof(received));
+        rcvid = MsgReceive(attach->chid, &received,
+                           sizeof(received), NULL);
+        if (rcvid == -1) {
+            perror("MsgReceive");
+            status = EXIT_FAILURE;
+            break;
+        }
+        /* Handle native QNX pulses. */
+        if (rcvid == 0) {
+            switch (received.pulse.code) {
+                case _PULSE_CODE_DISCONNECT:
+                    ConnectDetach(received.pulse.scoid);
+                    break;
+                case _PULSE_CODE_UNBLOCK:
+                case _PULSE_CODE_COIDDEATH:
+                case _PULSE_CODE_THREADDEATH:
+                default:
+                    break;
+            }
+            continue;
+        }
+        msg = received.message;
+        if (msg.hdr.type == _IO_CONNECT) {
+            MsgReply(rcvid, EOK, NULL, 0);
+            continue;
+        }
+        if (msg.hdr.type >= _IO_BASE &&
+            msg.hdr.type <= _IO_MAX) {
+            MsgError(rcvid, ENOSYS);
+            continue;
+        }
+        if (msg.hdr.type != CONTROLLER_L2_DATA_TYPE) {
+            MsgError(rcvid, ENOSYS);
+            continue;
+        }
+        switch (msg.hdr.subtype) {
+            case CONTROLLER_L2_UPDATE_DATA: {
+                Controller_L2_Acknowledgement reply = {0};
+                pthread_mutex_lock(mutex);
+                /* Copy waiting cars into the controller's input. */
+                intersection->input.NE = msg.cars.NE;
+                intersection->input.NS = msg.cars.NS;
+                intersection->input.NW = msg.cars.NW;
+                intersection->input.EN = msg.cars.EN;
+                intersection->input.ES = msg.cars.ES;
+                intersection->input.EW = msg.cars.EW;
+                intersection->input.SN = msg.cars.SN;
+                intersection->input.SE = msg.cars.SE;
+                intersection->input.SW = msg.cars.SW;
+                intersection->input.WN = msg.cars.WN;
+                intersection->input.WE = msg.cars.WE;
+                intersection->input.WS = msg.cars.WS;
+                /* Copy pedestrian requests into the same input. */
+                intersection->input.Left_NS = msg.buttons.Left_NS;
+                intersection->input.Right_NS = msg.buttons.Right_NS;
+                intersection->input.Top_EW = msg.buttons.Top_EW;
+                intersection->input.Bottom_EW = msg.buttons.Bottom_EW;
+                pthread_mutex_unlock(mutex);
+                /* Existing controller logic calculates statesL2 separately. */
+                reply.hdr.type = CONTROLLER_L2_DATA_TYPE;
+                reply.hdr.subtype = CONTROLLER_L2_UPDATE_DATA;
+                snprintf(reply.buf, sizeof(reply.buf),
+                         "L2 cars and buttons received");
+                MsgReply(rcvid, EOK, &reply, sizeof(reply));
+                break;
+            }
+            case CONTROLLER_L2_REQUEST_STATE: {
+                Controller_L2_StateReply reply = {0};
+                reply.hdr.type = CONTROLLER_L2_DATA_TYPE;
+                reply.hdr.subtype = CONTROLLER_L2_REQUEST_STATE;
+                pthread_mutex_lock(mutex);
+                reply.state = (int32_t)intersection->statesL2;
+                pthread_mutex_unlock(mutex);
+                MsgReply(rcvid, EOK, &reply, sizeof(reply));
+                break;
+            }
+            default:
+                MsgError(rcvid, ENOSYS);
+                break;
+        }
+    }
+    name_detach(attach, 0);
+    return status;
+}
 /*
 #################################################################################
 #################################################################################
-
     All logics here are only relavent to the traffic light logics
-
 #################################################################################
 #################################################################################
-*/ 
-
+*/
 // Called directly by main; calculates and stores outputs without sleeping.
 void StateMachine(void *L1_data, void *L2_data, void *settings_data) {
     Intersection *L1 = L1_data;
@@ -539,13 +710,11 @@ void StateMachine(void *L1_data, void *L2_data, void *settings_data) {
     CurState = RequestedState;
     TrafficLight_State_Machine(&CurState, L1, L2);
 }
-
 void Reset_Traffic_Light_Outputs(Intersection *light) {
     if (light != NULL) {
         light->output = (Movements){0};
     }
 }
-
 void TrafficLight_State_Machine(void *state_ptr, void *L1_data, void *L2_data) {
     Intersection *L1 = L1_data;
     Intersection *L2 = L2_data;
@@ -601,7 +770,6 @@ void TrafficLight_State_Machine(void *state_ptr, void *L1_data, void *L2_data) {
             break;
     }
 }
-
 void North_South_route_Case_Statement(int route_index, Intersection *light) {
     if (light == NULL) {
         return;
@@ -641,7 +809,6 @@ void North_South_route_Case_Statement(int route_index, Intersection *light) {
             break;
     }
 }
-
 void West_South_route_East_North_route_Case_Statement(int route_index, Intersection *light) {
     if (light == NULL) {
         return;
@@ -688,7 +855,6 @@ void West_South_route_East_North_route_Case_Statement(int route_index, Intersect
             break;
     }
 }
-
 void North_West_route_and_West_north_route_Case_Statement(int route_index, Intersection *light) {
     if (light == NULL) {
         return;
@@ -735,7 +901,6 @@ void North_West_route_and_West_north_route_Case_Statement(int route_index, Inter
             break;
     }
 }
-
 void East_West_route_Case_Statement(int route_index, Intersection *light) {
     if (light == NULL) {
         return;
@@ -775,7 +940,6 @@ void East_West_route_Case_Statement(int route_index, Intersection *light) {
             break;
     }
 }
-
 void East_to_North_route_Case_Statement(int route_index, Intersection *light) {
     if (light == NULL) {
         return;
@@ -822,7 +986,6 @@ void East_to_North_route_Case_Statement(int route_index, Intersection *light) {
             break;
     }
 }
-
 void South_to_East_route_Case_Statement(int route_index, Intersection *light) {
     if (light == NULL) {
         return;
@@ -869,7 +1032,6 @@ void South_to_East_route_Case_Statement(int route_index, Intersection *light) {
             break;
     }
 }
-
 void Calculate_Route_Scores(Intersection *light) {
     if (light == NULL) {
         return;
@@ -909,7 +1071,6 @@ void Calculate_Route_Scores(Intersection *light) {
     light->South_East[4] = light->priority.ES + light->priority.SE + light->priority.Top_EW + light->priority.Bottom_EW;
     Find_Maximum_Index(light->South_East, 5, &light->best.South_East);
 }
-
 enum states TrafficLight_Logics(Intersection *L1, Intersection *L2) {
     Calculate_Route_Scores(L1);
     Calculate_Route_Scores(L2);
@@ -938,7 +1099,6 @@ enum states TrafficLight_Logics(Intersection *L1, Intersection *L2) {
     Find_Maximum_Index(TrafficRoutes, 10, &Decided_route);
     return TrafficRoutes[Decided_route] == 0 ? CONTROLLER_HOLD : (enum states)Decided_route;
 }
-
 void Find_Maximum_Index(const int *array, int size, int *max_index) {
     int max_value = array[0];
     *max_index = 0;
@@ -985,7 +1145,6 @@ static void Register_Inputs(Intersection *light) {
     if (!light->input.Bottom_EW) light->priority.Bottom_EW = 0;
     else if (light->priority.Bottom_EW == 0) light->priority.Bottom_EW = 1;
 }
-
 void Update_Waiting_Priorities(Intersection *light) {
     if (!light) return;
     Update_One_Priority(&light->priority.NE, light->input.NE);
@@ -1005,7 +1164,6 @@ void Update_Waiting_Priorities(Intersection *light) {
     Update_One_Priority(&light->priority.Top_EW, light->input.Top_EW);
     Update_One_Priority(&light->priority.Bottom_EW, light->input.Bottom_EW);
 }
-
 static void Update_One_Priority(int *priority, int pending) {
     if (!pending) *priority = 0;
     else if (*priority <= 0) *priority = 1;

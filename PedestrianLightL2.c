@@ -148,7 +148,10 @@ static void *PedestrianServerThread(void *state_ptr)
     }
     return NULL;
 }
-int main(void)
+#include "SampleCode_DisplayTransport.h"
+#include "SampleCode_DisplayPedestrianAdapter.inc"
+
+int main(int argc, char **argv)
 {
     PedstrianLight light = {
         .currentState = PED_NONE,
@@ -182,6 +185,15 @@ int main(void)
         fprintf(stderr, "pthread_create buttons: %s\n", strerror(error));
         return EXIT_FAILURE;
     }
+    // Both added threads use the existing light mutex and structure.
+    Display_NodeLink displayLink = {
+        .node = DISPLAY_PED_L2, .light = &light, .mutex = &light_mutex,
+        .status_path = argc > 1 ? argv[1] : "Display_From_Pedestrian_L2",
+        .snapshot = PedestrianDisplaySnapshot, .apply_input = PedestrianDisplayInput
+    };
+    error = StartDisplayNodeLink(&displayLink);
+    if (error) { fprintf(stderr, "display threads: %s\n", strerror(error)); return EXIT_FAILURE; }
+
     pthread_mutex_lock(&light_mutex);
     for (;;) {
         /* Stay red until the traffic-light client sends a command. */
@@ -192,7 +204,7 @@ int main(void)
         int period = light.period;
         if (light.currentState == PED_NONE)
             continue; /* Server has already applied all-red. */
-        int flashStart = steps - (steps / 10 + (steps % 10 != 0));
+        int flashStart = steps > 3 ? steps - 3 : 1; // 9 WALK + 3 flashing ticks for the 12-tick command.
         struct timespec deadline;
         if (clock_gettime(CLOCK_MONOTONIC, &deadline) == -1) {
             perror("clock_gettime");

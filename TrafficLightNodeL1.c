@@ -344,10 +344,10 @@ static void *TrainServerThread(void *argument);
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
 // Starts communication threads, requests data, selects next states, and runs the traffic-light timing and output sequence.
+#include "SampleCode_DisplayTransport.h"
+#include "SampleCode_DisplayTrafficAdapter.inc"
+
 int main(int argc, char **argv) {
-    // This version retains your fixed attachment names in clients[] below.
-    (void)argc;
-    (void)argv;
     // Creates the Two structure we going to use
     TrafficLight L1 = {
         .trafficState = TRAFFIC_RED,
@@ -367,9 +367,9 @@ int main(int argc, char **argv) {
     };
     pthread_t threads[4]; // Make threads into a list -> stores the thread ID
     ClientThreadArguments clients[3] = {
-        { PEDESTRIAN_LINK, PEDESTRIAN_ATTACH_POINT, &L1, &L2 },
-        { CONTROLLER_LINK, CONTROLLER_L1_ATTACH_POINT, &L1, &L2 },
-        { L2_LINK, L1_L2_ATTACH_POINT, &L1, &L2 }
+        { PEDESTRIAN_LINK, argc > 1 ? argv[1] : PEDESTRIAN_ATTACH_POINT, &L1, &L2 },
+        { CONTROLLER_LINK, argc > 2 ? argv[2] : CONTROLLER_L1_ATTACH_POINT, &L1, &L2 },
+        { L2_LINK, argc > 3 ? argv[3] : L1_L2_ATTACH_POINT, &L1, &L2 }
     }; // Make a super Sturcture that contains three attachements
     // The Link identify them to which of the Link they connect to Pedestrian, Controller or L2
     // Attachment Points are the path to the connections over the internet as clients -> path to find the server
@@ -377,7 +377,7 @@ int main(int argc, char **argv) {
     //************************************************************************************
     //      Time period logics goes here
     //************************************************************************************
-    settings.time = 5;   /* Existing split: time - 3 green, 2 yellow, 1 red. */
+    settings.time = 15;   /* Existing split: time - 3 green, 2 yellow, 1 red. */
     settings.peroid = 1; /* Seconds per tick. Keep the original spelling. */
     // Error checking for thread create -> check if they can be created and exit when they cannot be created
     error = pthread_create(&threads[0], NULL, TrainServerThread, &L1);
@@ -393,6 +393,14 @@ int main(int argc, char **argv) {
             return EXIT_FAILURE;
         }
     }
+    // Display sends simulated cars here; this node reports its actual state back.
+    Display_NodeLink displayLink = {
+        .node = DISPLAY_L1, .light = &L1, .mutex = &light_mutex,
+        .status_path = argc > 4 ? argv[4] : "Display_From_L1",
+        .snapshot = TrafficDisplaySnapshot, .apply_input = TrafficDisplayInput
+    };
+    error = StartDisplayNodeLink(&displayLink);
+    if (error) { fprintf(stderr, "display threads: %s\n", strerror(error)); return EXIT_FAILURE; }
     /* Startup allowance from your original main; workers connect concurrently. */
     sleep(5);
     // Inifinite Loop
@@ -460,6 +468,11 @@ int main(int argc, char **argv) {
             pthread_mutex_lock(&light_mutex);
             // Advanced the state to yellow light before train comes
             if (!snapshotL1.train_detected && L1.train_detected && tick < timing.time - 3) {
+                // Stop the earlier pedestrian command before shortening this cycle.
+                L1.pedestrianCombination = PED_NONE;
+                pthread_mutex_unlock(&light_mutex);
+                RequestAndWait(&L1, PEDESTRIAN_LINK, &L1.stateChange, &pedestrian_cond);
+                pthread_mutex_lock(&light_mutex);
                 tick = timing.time - 3;
             }
             // Transition between red yellow and green
@@ -887,6 +900,7 @@ int Pedestrian_Client(const char *sname, TrafficLight *light, const Settings *se
             command = PEDESTRIAN_SET_STATE;
             msg.pedestrianCombination = light->pedestrianCombination;
             msg.settings = *settings;
+            msg.settings.time -= 3; // Pedestrian WALK/flash ends before vehicle yellow.
             light->stateChange = 0;
         }
         pthread_mutex_unlock(mutex);

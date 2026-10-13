@@ -108,6 +108,14 @@ static void *TrainControllerClientThread(void *argument) {
     return NULL;
 }
 
+#include "SampleCode_DisplayTransport.h"
+
+// Simulated detection is an input. Existing train logic still decides the state.
+static void TrainDisplayInput(void *data, const Display_Message *msg) {
+    TrainData *train = data;
+    train->train_detected = msg->train_detected;
+}
+
 int main(int argc, char **argv) {
     // Initialize the train data
     TrainData trainData = {
@@ -121,7 +129,7 @@ int main(int argc, char **argv) {
     TrainStateLogic(&trainData);
     TrainLogicNode(&trainData, NULL);
 
-    pthread_t threads[2];
+    pthread_t threads[4];
     TrainClientThreadArguments trafficArgs = {
         argc > 1 ? argv[1] : TRAIN_TRAFFIC_ATTACH_POINT, &trainData
     };
@@ -141,6 +149,23 @@ int main(int argc, char **argv) {
         fprintf(stderr, "pthread_create controller client: %s\n", strerror(error));
         return EXIT_FAILURE;
     }
+
+    // L2 and display each have their own connection; one blocked link cannot stop the others.
+    TrainClientThreadArguments L2Args = {
+        argc > 3 ? argv[3] : "Train_To_Traffic_L2", &trainData
+    };
+    TrainClientThreadArguments displayArgs = {
+        argc > 4 ? argv[4] : "Train_To_Display", &trainData
+    };
+    error = pthread_create(&threads[2], NULL, TrainTrafficClientThread, &L2Args);
+    if (!error) error = pthread_create(&threads[3], NULL, TrainTrafficClientThread, &displayArgs);
+    if (error) { fprintf(stderr, "train clients: %s\n", strerror(error)); return EXIT_FAILURE; }
+    Display_NodeLink displayInput = {
+        .node = DISPLAY_TRAIN, .light = &trainData, .mutex = &train_mutex,
+        .apply_input = TrainDisplayInput
+    };
+    error = StartDisplayInputLink(&displayInput);
+    if (error) { fprintf(stderr, "train input server: %s\n", strerror(error)); return EXIT_FAILURE; }
 
     /* Main keeps trainData and both argument structures alive indefinitely. */
     while (1) {
@@ -185,7 +210,7 @@ int Train_Traffic_Client(const char *sname, const TrainState *trainState, pthrea
     msg.ClientID = 800;
     msg.hdr.type = TRAIN_DATA_TYPE;
     msg.hdr.subtype = TRAIN_STATUS_UPDATE;
-    if ((server_coid = name_open(snfame, 0)) == -1) {
+    if ((server_coid = name_open(sname, 0)) == -1) {
         perror("name_open");
         return EXIT_FAILURE;
     }
