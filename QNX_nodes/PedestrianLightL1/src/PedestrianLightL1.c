@@ -10,6 +10,7 @@
 #include <inttypes.h>
 #include <sys/dispatch.h>
 #include <sys/neutrino.h>
+#include "DisplayLink.h"
 #include <sys/iomsg.h>
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
@@ -17,7 +18,6 @@
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
 pthread_mutex_t light_mutex = PTHREAD_MUTEX_INITIALIZER;
-/* Main sleeps here until the server receives a state, or a tick expires. */
 pthread_cond_t pedestrian_state_cond;
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
@@ -150,7 +150,32 @@ static void *PedestrianServerThread(void *state_ptr)
     return NULL;
 }
 
-int main(void)
+
+//------------------------------------------------------------------------------------------------
+// Display link hooks
+//------------------------------------------------------------------------------------------------
+static void PedestrianDisplaySnapshot(void *data, Display_Status *out) {
+    const PedstrianLight *light = data;
+    out->colour = (int)light->lightState;            /* GREEN=0, RED_Flash=1, RED=2 matches the wire colour */
+    out->state = (int)light->currentState;
+    out->active[12] = light->LeftNorthSouthLight != 0;
+    out->active[13] = light->RightNorthSouthLight != 0;
+    out->active[14] = light->TopEastWestLight != 0;
+    out->active[15] = light->BottomEastWestLight != 0;
+    out->buttons[0] = light->LeftNorthSouth != 0;
+    out->buttons[1] = light->RightNorthSouth != 0;
+    out->buttons[2] = light->TopEastWest != 0;
+    out->buttons[3] = light->BottomEastWest != 0;
+}
+static void PedestrianDisplayApply(void *data, const Display_Input *in) {
+    PedstrianLight *light = data;                        /* a simulated press latches a request */
+    if (in->buttons[0]) light->LeftNorthSouth = 1;
+    if (in->buttons[1]) light->RightNorthSouth = 1;
+    if (in->buttons[2]) light->TopEastWest = 1;
+    if (in->buttons[3]) light->BottomEastWest = 1;
+}
+
+int main(int argc, char **argv)
 {
     PedstrianLight light = {
         .currentState = PED_NONE,
@@ -187,6 +212,15 @@ int main(void)
         return EXIT_FAILURE;
     }
 
+    // Display link
+    Display_Link displayLink = {
+        .node = DISPLAY_PED_L1, .path = argc > 1 ? argv[1] : DISPLAY_REMOTE_PATH("Display_From_Pedestrian_L1"),
+        .data = &light, .mutex = &light_mutex,
+        .snapshot = PedestrianDisplaySnapshot, .apply = PedestrianDisplayApply
+    };
+    error = Display_StartLink(&displayLink);
+    if (error) { fprintf(stderr, "display threads: %s\n", strerror(error)); return EXIT_FAILURE; }
+
     pthread_mutex_lock(&light_mutex);
     for (;;) {
         /* Stay red until the traffic-light client sends a command. */
@@ -199,7 +233,7 @@ int main(void)
         if (light.currentState == PED_NONE)
             continue; /* Server has already applied all-red. */
 
-        int flashStart = steps - (steps / 10 + (steps % 10 != 0));
+        int flashStart = steps > 3 ? steps - 3 : 1; // 9 WALK + 3 flashing ticks for the 12-tick command.
         struct timespec deadline;
         if (clock_gettime(CLOCK_MONOTONIC, &deadline) == -1) {
             perror("clock_gettime");
@@ -211,8 +245,7 @@ int main(void)
             light.lightState = i < flashStart ? TRAFFIC_GREEN : TRAFFIC_RED_Flash;
             deadline.tv_sec += period;
 
-            /* Releases the mutex while waiting. New commands interrupt the tick.
-             * Keep the same deadline on spurious wakes; do not restart the tick. */
+            // Releases the mutex while waiting
             while (!light.stateChange) {
                 error = pthread_cond_timedwait(&pedestrian_state_cond,
                                                &light_mutex, &deadline);
@@ -226,13 +259,12 @@ int main(void)
             }
         }
 
-        /* Never overwrite a newer state applied by the server. */
         if (!light.stateChange) {
             light.lightState = TRAFFIC_RED;
             light.phaseActive = 0;
             PedestrianStateOutput(PED_NONE, &light);
         }
-        /* No automatic restart. Wait for the next traffic-light command. */
+        /* Wait for the next traffic-light command */
     }
 }
 
@@ -299,7 +331,7 @@ int Pedestrian_Server(PedstrianLight *light, pthread_mutex_t *mutex)
         switch (msg.hdr.subtype) {
             case PEDESTRIAN_SET_STATE: {
                 Pedestrian_State_Reply reply = {0};
-                /* Only reject values that cannot describe a runnable cycle. */
+                // Only reject values that cannot describe a runnable cycle
                 if (msg.pedestrianCombination < PED_NONE ||
                     msg.pedestrianCombination > PED_LNS_RNS_TEW_BEW ||
                     (msg.pedestrianCombination != PED_NONE &&
@@ -331,7 +363,7 @@ int Pedestrian_Server(PedstrianLight *light, pthread_mutex_t *mutex)
                 reply.hdr.subtype = PEDESTRIAN_SET_STATE;
                 snprintf(reply.buf, sizeof(reply.buf),
                          "Pedestrian state received");
-                /* Software state is applied; the timed cycle need not finish to reply. */
+                /* Software state is applied - the timed cycle need not finish to reply. */
                 MsgReply(rcvid, EOK, &reply, sizeof(reply));
                 break;
             }
@@ -362,7 +394,7 @@ int Pedestrian_Server(PedstrianLight *light, pthread_mutex_t *mutex)
 //    Pedestrian Light Control System Logic
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
-/* Placeholder required by your existing button_checker; replace with GPIO later. */
+// Placeholder
 void ReadExternalButtons(PedstrianButton *buttons)
 {
     *buttons = (PedstrianButton){0};
@@ -396,15 +428,13 @@ void *button_checker(void *state_ptr) {
     PedstrianButton previous = {0};
     while (1) {
         PedstrianButton buttons;
-        ReadExternalButtons(&buttons); // Hardware work is OUTSIDE the mutex.
+        ReadExternalButtons(&buttons);
         CheckPedestrianButtons(light, &buttons, &previous);
         usleep(5000); // Same 5 ms polling interval as original.
     }
     return NULL;
 }
-/* Combination selects crossings; lightState separately specifies their colour.
- * Physical flashing/output is not implemented in this logic-only example.
- */
+// Combination selector
 void PedestrianStateOutput(PedestrianCombination state, PedstrianLight *light)
 {
     light->LeftNorthSouthLight = 0;

@@ -6,6 +6,7 @@
 #include <string.h>
 #include <sys/dispatch.h>
 #include <sys/neutrino.h>
+#include "DisplayLink.h"
 pthread_mutex_t train_mutex = PTHREAD_MUTEX_INITIALIZER;
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
@@ -18,19 +19,18 @@ typedef enum {
     TRAIN_ERROR = 2
 } TrainState;
 typedef struct {
-    int BoomGate;       // Requested gate position: 0 = down, 1 = up.
-    int RedLight;       // TRAIN stop signal: 1 = STOP, 0 = stop signal off.
-    int RedLightFlash;  // ROADSIDE flashing-warning enable: 0 = off, 1 = on.
+    int BoomGate;       // Requested gate position: 0 = down, 1 = up
+    int RedLight;       // TRAIN stop signal: 1 = STOP, 0 = stop signal off
+    int RedLightFlash;  // ROADSIDE flashing-warning enable: 0 = off, 1 = on
 } Hardware;
 typedef struct {
     int train_detected;
     int hardware_error;
     Hardware hardware;
     TrainState train_state;
-    int gate_down_confirmed; // INPUT: 1 only when gate-down feedback is valid.
+    int gate_down_confirmed; // INPUT: 1 only when gate-down feedback is valid
 } TrainData;
-// Caller holds train_mutex while accessing shared TrainData through these functions.
-// The functions do not lock again internally.
+//  holds train_mutex while accessing shared TrainData through these functions.
 void TrainStateLogic(TrainData *trainData);
 void TrainLogicNode(void *state_ptr, void *inputs);
 
@@ -42,8 +42,8 @@ void TrainLogicNode(void *state_ptr, void *inputs);
 #define TRAIN_DATA_TYPE     0x23
 #define TRAIN_STATUS_UPDATE 1
 #define TRAIN_BUF_SIZE      100
-#define TRAIN_TRAFFIC_ATTACH_POINT    "Train_To_Traffic"
-#define TRAIN_CONTROLLER_ATTACH_POINT "Train_To_Controller"
+#define TRAIN_TRAFFIC_ATTACH_POINT    "/net/VM_x86_TrafficLightNodeL1/dev/name/local/Train_To_Traffic"
+#define TRAIN_CONTROLLER_ATTACH_POINT "/net/VM_x86_ControllerNode/dev/name/local/Train_To_Controller"
 typedef union {
     uint32_t sival_int;
     uint32_t dummy[4];
@@ -77,7 +77,7 @@ typedef struct {
 //    Main Function: Train Logic Node
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
-/* Each thread owns its arguments, but both read the same trainData. */
+// Thread args
 typedef struct {
     const char *sname;
     TrainData *trainData;
@@ -108,6 +108,23 @@ static void *TrainControllerClientThread(void *argument) {
     return NULL;
 }
 
+//------------------------------------------------------------------------------------------------
+// Display link hooks
+//------------------------------------------------------------------------------------------------
+static void TrainDisplaySnapshot(void *data, Display_Status *out) {
+    const TrainData *train = data;
+    out->colour = 2;
+    out->state = (int)train->train_state;
+    out->train_detected = train->train_state == TRAIN_PRESENT;
+    out->active[0] = train->hardware.BoomGate == 0;          // gate commanded down
+    out->active[1] = train->hardware.RedLight != 0;          // train STOP signal
+    out->active[2] = train->hardware.RedLightFlash != 0;     // roadside warning flashing
+}
+static void TrainDisplayApply(void *data, const Display_Input *in) {
+    TrainData *train = data;
+    train->train_detected = in->train;                       // simulated detection
+}
+
 int main(int argc, char **argv) {
     // Initialize the train data
     TrainData trainData = {
@@ -117,11 +134,11 @@ int main(int argc, char **argv) {
         .train_state = TRAIN_NOT_PRESENT,
         .gate_down_confirmed = 0
     };
-    /* Initialise the state and output commands before clients can read them. */
+    /* Initialise the state and output commands */
     TrainStateLogic(&trainData);
     TrainLogicNode(&trainData, NULL);
 
-    pthread_t threads[2];
+    pthread_t threads[4];
     TrainClientThreadArguments trafficArgs = {
         argc > 1 ? argv[1] : TRAIN_TRAFFIC_ATTACH_POINT, &trainData
     };
@@ -142,7 +159,23 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
-    /* Main keeps trainData and both argument structures alive indefinitely. */
+    // L2 and the display connection
+    TrainClientThreadArguments L2Args = {
+        argc > 3 ? argv[3] : "Train_To_Traffic_L2", &trainData
+    };
+    /* Display link: train status out to the display node, simulated detection back in the reply. */
+    Display_Link displayLink = {
+        .node = DISPLAY_TRAIN, .path = argc > 4 ? argv[4] : DISPLAY_REMOTE_PATH("Display_From_Train"),
+        .data = &trainData, .mutex = &train_mutex,
+        .snapshot = TrainDisplaySnapshot, .apply = TrainDisplayApply
+    };
+    error = pthread_create(&threads[2], NULL, TrainTrafficClientThread, &L2Args);
+    if (!error) error = Display_StartLink(&displayLink);
+    if (error) { fprintf(stderr, "train clients: %s\n", strerror(error)); return EXIT_FAILURE; }
+
+    if (error) { fprintf(stderr, "train input server: %s\n", strerror(error)); return EXIT_FAILURE; }
+
+    // Main data loop
     while (1) {
         pthread_mutex_lock(&train_mutex);
         // MANUAL TEST INPUTS: uncomment/change values here.
@@ -185,7 +218,7 @@ int Train_Traffic_Client(const char *sname, const TrainState *trainState, pthrea
     msg.ClientID = 800;
     msg.hdr.type = TRAIN_DATA_TYPE;
     msg.hdr.subtype = TRAIN_STATUS_UPDATE;
-    if ((server_coid = name_open(snfame, 0)) == -1) {
+    if ((server_coid = name_open(sname, 0)) == -1) {
         perror("name_open");
         return EXIT_FAILURE;
     }
@@ -246,7 +279,7 @@ int Train_Controller_Client(const char *sname, const TrainState *trainState, pth
 }
 //------------------------------------------------------------------------------------------------
 // ***********************************************************************************************
-//    Code below is for the train logic node, which is separate from the controller and traffic light nodes.
+//    Code for the train logic node, which is separate from the controller and traffic light nodes.
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
 void TrainStateLogic(TrainData *trainData) {
@@ -263,7 +296,7 @@ void TrainLogicNode(void *state_ptr, void *inputs) {
     (void)inputs;
     TrainData *trainData = state_ptr;
     Hardware *hardware = &trainData->hardware;
-    // Check the train state and update hardware accordingly
+    // Check the train state
     switch (trainData->train_state) {
         case TRAIN_NOT_PRESENT:
             hardware->BoomGate = 1; // No train: command gate UP.

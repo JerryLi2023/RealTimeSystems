@@ -1,1 +1,2 @@
-build/x86_64-debug/src/PedestrianLightL2.o: src/PedestrianLightL2.c
+build/x86_64-debug/src/PedestrianLightL2.o: src/PedestrianLightL2.c \
+ src/DisplayLink.h

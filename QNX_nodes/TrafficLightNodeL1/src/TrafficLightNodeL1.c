@@ -12,6 +12,7 @@
 #include <sys/iofunc.h>
 #include <sys/netmgr.h>
 #include <sys/neutrino.h>
+#include "DisplayLink.h"	// used for connecting with display node
 pthread_cond_t pedestrian_cond = PTHREAD_COND_INITIALIZER;
 pthread_cond_t controller_cond = PTHREAD_COND_INITIALIZER;
 pthread_cond_t l1_l2_cond = PTHREAD_COND_INITIALIZER;
@@ -66,7 +67,7 @@ typedef enum {
     STATE_ES_SE_Top_EW_Bottom_EW = 27,
     // No movements permitted
     STATE_ALL_RED = 28,
-    /* Already returned by your selector; missing from the original enum. */
+    // extra states
     STATE_NE_ES_EN_Left_NS = 29,
     STATE_NE_EN_Bottom_EW_Left_NS = 30,
     STATE_ES_SE_SW_Top_EW = 31,
@@ -157,6 +158,26 @@ typedef struct {
 Settings settings = {0};
 pthread_mutex_t light_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t communication_cond = PTHREAD_COND_INITIALIZER;
+//------------------------------------------------------------------------------------------------
+// Display link hooks
+//------------------------------------------------------------------------------------------------
+typedef char TrafficDisplayLayoutCheck[(sizeof(Movements) == sizeof(((Display_Status *)0)->active) &&
+    sizeof(CurrentCars) == sizeof(((Display_Status *)0)->cars) &&
+    sizeof(ButtonPresses) == sizeof(((Display_Status *)0)->buttons)) ? 1 : -1];
+static void TrafficDisplaySnapshot(void *data, Display_Status *out) {
+    const TrafficLight *light = data;
+    out->colour = (int)light->trafficState;          /* GREEN=0, YELLOW=1, RED=2 matches the wire colour */
+    out->state = (int)light->trafficDirection;
+    out->train_detected = light->train_detected != 0;
+    memcpy(out->active, &light->outputL1, sizeof(out->active));     /* 16 movement flags, wire order */
+    memcpy(out->cars, &light->storedDirection, sizeof(out->cars));
+    memcpy(out->buttons, &light->buttons, sizeof(out->buttons));
+}
+static void TrafficDisplayApply(void *data, const Display_Input *in) {
+    TrafficLight *light = data;
+    memcpy(&light->storedDirection, in->cars, sizeof(in->cars));
+}
+
 // Function prototypes
 TrafficState TrafficLogicNode(void *state_ptr);
 TrafficState TrafficLogicNodeL2(void *state_ptr);
@@ -175,7 +196,7 @@ PedestrianCombination GetPedestrianCombination(const Movements *output);
 //   Pedestrian Client/Server Structures
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
-#define PEDESTRIAN_ATTACH_POINT "Pedestrian"
+#define PEDESTRIAN_ATTACH_POINT "/net/VM_x86_PedestrianLightL1/dev/name/local/Pedestrian"
 #define PEDESTRIAN_DATA_TYPE 0x22
 #define PEDESTRIAN_BUF_SIZE 100
 #define PEDESTRIAN_SET_STATE    1
@@ -244,7 +265,7 @@ typedef struct {
 //   Controller Client/Server Structures
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
-#define CONTROLLER_L1_ATTACH_POINT "L1_To_Controller"
+#define CONTROLLER_L1_ATTACH_POINT "/net/VM_x86_ControllerNode/dev/name/local/L1_To_Controller"
 #define CONTROLLER_L1_DATA_TYPE    0x24
 #define CONTROLLER_L1_BUF_SIZE     100
 #define CONTROLLER_L1_UPDATE_DATA   1
@@ -281,7 +302,7 @@ typedef struct {
 //    L1 and L2 Client/Server Structures
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
-#define L1_L2_ATTACH_POINT "L1_To_L2"
+#define L1_L2_ATTACH_POINT "/net/VM_x86_TrafficLightNodeL2/dev/name/local/L1_To_L2"
 #define L1_L2_DATA_TYPE    0x25
 #define L1_L2_BUF_SIZE    100
 #define L1_L2_SEND_DATA    1
@@ -331,7 +352,7 @@ int Pedestrian_Client(const char *sname, TrafficLight *light, const Settings *ti
 int Controller_L1_Client(const char *sname, TrafficLight *light, pthread_mutex_t *mutex);
 int L1_L2_Client(const char *sname, TrafficLight *L1, TrafficLight *L2, pthread_mutex_t *mutex);
 void TrafficLightTransition(TrafficLight *light, int tick, int greenTicks, int yellowTicks);
-// Helpers are defined below main; declare them before main calls them.
+// Defined helpers
 static int *ClientConnectionFlag(TrafficLight *light, ClientLink link);
 static void SetClientConnection(TrafficLight *, ClientLink, int, pthread_mutex_t *);
 static void RecordClientReply(TrafficLight *, ClientLink, int, pthread_mutex_t *);
@@ -344,10 +365,8 @@ static void *TrainServerThread(void *argument);
 // ***********************************************************************************************
 //------------------------------------------------------------------------------------------------
 // Starts communication threads, requests data, selects next states, and runs the traffic-light timing and output sequence.
+
 int main(int argc, char **argv) {
-    // This version retains your fixed attachment names in clients[] below.
-    (void)argc;
-    (void)argv;
     // Creates the Two structure we going to use
     TrafficLight L1 = {
         .trafficState = TRAFFIC_RED,
@@ -367,9 +386,9 @@ int main(int argc, char **argv) {
     };
     pthread_t threads[4]; // Make threads into a list -> stores the thread ID
     ClientThreadArguments clients[3] = {
-        { PEDESTRIAN_LINK, PEDESTRIAN_ATTACH_POINT, &L1, &L2 },
-        { CONTROLLER_LINK, CONTROLLER_L1_ATTACH_POINT, &L1, &L2 },
-        { L2_LINK, L1_L2_ATTACH_POINT, &L1, &L2 }
+        { PEDESTRIAN_LINK, argc > 1 ? argv[1] : PEDESTRIAN_ATTACH_POINT, &L1, &L2 },
+        { CONTROLLER_LINK, argc > 2 ? argv[2] : CONTROLLER_L1_ATTACH_POINT, &L1, &L2 },
+        { L2_LINK, argc > 3 ? argv[3] : L1_L2_ATTACH_POINT, &L1, &L2 }
     }; // Make a super Sturcture that contains three attachements
     // The Link identify them to which of the Link they connect to Pedestrian, Controller or L2
     // Attachment Points are the path to the connections over the internet as clients -> path to find the server
@@ -377,7 +396,7 @@ int main(int argc, char **argv) {
     //************************************************************************************
     //      Time period logics goes here
     //************************************************************************************
-    settings.time = 5;   /* Existing split: time - 3 green, 2 yellow, 1 red. */
+    settings.time = 15;   /* Existing split: time - 3 green, 2 yellow, 1 red. */
     settings.peroid = 1; /* Seconds per tick. Keep the original spelling. */
     // Error checking for thread create -> check if they can be created and exit when they cannot be created
     error = pthread_create(&threads[0], NULL, TrainServerThread, &L1);
@@ -393,7 +412,19 @@ int main(int argc, char **argv) {
             return EXIT_FAILURE;
         }
     }
-    /* Startup allowance from your original main; workers connect concurrently. */
+    // Display sends simulated cars here; this node reports its actual state back.
+
+
+    /* Display link: status out to the display node, simulated cars back in the reply. */
+    Display_Link displayLink = {
+        .node = DISPLAY_L1, .path = argc > 4 ? argv[4] : DISPLAY_REMOTE_PATH("Display_From_L1"),
+        .data = &L1, .mutex = &light_mutex,
+        .snapshot = TrafficDisplaySnapshot, .apply = TrafficDisplayApply
+    };
+    error = Display_StartLink(&displayLink);
+    if (error) { fprintf(stderr, "display threads: %s\n", strerror(error)); return EXIT_FAILURE; }
+
+    /* Startup allowance from main */
     sleep(5);
     // Inifinite Loop
     for (;;) {
@@ -460,6 +491,11 @@ int main(int argc, char **argv) {
             pthread_mutex_lock(&light_mutex);
             // Advanced the state to yellow light before train comes
             if (!snapshotL1.train_detected && L1.train_detected && tick < timing.time - 3) {
+                // Stop the earlier pedestrian command before shortening this cycle.
+                L1.pedestrianCombination = PED_NONE;
+                pthread_mutex_unlock(&light_mutex);
+                RequestAndWait(&L1, PEDESTRIAN_LINK, &L1.stateChange, &pedestrian_cond);
+                pthread_mutex_lock(&light_mutex);
                 tick = timing.time - 3;
             }
             // Transition between red yellow and green
@@ -475,7 +511,7 @@ int main(int argc, char **argv) {
         L1.trafficState = TRAFFIC_RED;
         StateOutput(STATE_ALL_RED, &L1.outputL1);
         L1.pedestrianCombination = PED_NONE;
-        // Logic if Controller is not connected and train is not comming
+        // Logic if Controller is not connected and train is not coming
         if (!controllerReady && !snapshotL1.train_detected) {
             L1.trafficDirectionNext = (TrafficStates)((L1.trafficDirectionNext + 1) % 6);
         }
@@ -520,12 +556,12 @@ static void SetClientConnection(TrafficLight *light, ClientLink link, int connec
         }
     }
     pthread_cond_broadcast(&communication_cond); // Wake up all the other thread to tell them communication has failed
-    // This is done so that the threads relying on this infomation of thread connection can know even when sleeping
+    // This is done so that the threads relying on this information of thread connection can know even when sleeping
     pthread_mutex_unlock(mutex);
 }
 static void RecordClientReply(TrafficLight *light, ClientLink link, int result, pthread_mutex_t *mutex) {
     pthread_mutex_lock(mutex);
-    // A late reply finishes the old operation, but is not a new successful reply.
+    // Reply handling
     light->replyResult[link] = light->requestExpired[link] ? EXIT_FAILURE : result;
     light->requestInFlight[link] = 0;
     light->replyCount[link]++;
@@ -543,7 +579,7 @@ static int RequestAndWait(TrafficLight *light, ClientLink link, int *request, pt
     // Lock the Mutexes
     pthread_mutex_lock(&light_mutex);
     if (!*ClientConnectionFlag(light, link) || light->requestInFlight[link]) {
-        // Return failure if disconnected or an earlier timed-out send is still pending.
+        // Return failure if disconnected or an earlier timed-out send is still pending
         pthread_mutex_unlock(&light_mutex);
         return 0;
     }
@@ -562,8 +598,7 @@ static int RequestAndWait(TrafficLight *light, ClientLink link, int *request, pt
             break;
         // Timeout error -> if the reply takes too long to arrive
         if (error == ETIMEDOUT) {
-            // Main stops waiting, but MsgSend may still be running in the client.
-            // Keep requestInFlight set until that client finishes or fails.
+            // Main stops waiting
             light->requestExpired[link] = 1;
             pthread_mutex_unlock(&light_mutex);
             fprintf(stderr, "Timed out waiting for client\n");
@@ -804,7 +839,7 @@ int Controller_L1_Client(const char *sname, TrafficLight *light, pthread_mutex_t
         while (!light->controllerRequest) {
             pthread_cond_wait(&controller_cond, mutex);
         }
-        // If main timed out before we picked up the request, do not send it now.
+        // Timed out response
         if (light->requestExpired[CONTROLLER_LINK]) {
             light->controllerRequest = 0;
             pthread_mutex_unlock(mutex);
@@ -826,7 +861,7 @@ int Controller_L1_Client(const char *sname, TrafficLight *light, pthread_mutex_t
         }
         printf("Reply: %.*s\n",
                CONTROLLER_L1_BUF_SIZE, acknowledgement.buf);
-        /* Your requested calculation interval. */
+        // Calculation interval
         sleep(1);
         /* Second message: ask for the calculated L1 state. */
         msg.hdr.subtype = CONTROLLER_L1_REQUEST_STATE;
@@ -887,6 +922,7 @@ int Pedestrian_Client(const char *sname, TrafficLight *light, const Settings *se
             command = PEDESTRIAN_SET_STATE;
             msg.pedestrianCombination = light->pedestrianCombination;
             msg.settings = *settings;
+            msg.settings.time -= 3; // Pedestrian WALK/flash ends before vehicle yellow.
             light->stateChange = 0;
         }
         pthread_mutex_unlock(mutex);
@@ -924,7 +960,7 @@ int Pedestrian_Client(const char *sname, TrafficLight *light, const Settings *se
         if (status == EXIT_SUCCESS)
             RecordClientReply(light, PEDESTRIAN_LINK, EXIT_SUCCESS, mutex);
         if (status == EXIT_FAILURE) {
-            /* Leave the failed operation pending before exiting. */
+            // Exit failure handling
             pthread_mutex_lock(mutex);
             if (command == PEDESTRIAN_REQUEST_DATA)
                 light->pedestrianRequest = 1;
@@ -952,9 +988,8 @@ void TrafficLightTransition(TrafficLight *light, int tick, int greenTicks, int y
         light->trafficState = TRAFFIC_RED;
     }
 }
-/* These three functions select states only. main owns timing and outputs.
- * Pass snapshots made under light_mutex, not live concurrently modified data.
- */
+//  Functions to select states only
+
 TrafficState ControllerStateMachine(void *state_ptr, void *inputs) {
     TrafficLight *light = state_ptr;
     (void)inputs;
@@ -1038,7 +1073,7 @@ TrafficState TrafficLogicNode(void *state_ptr) {
     if (!light) return STATE_ALL_RED;
     return SelectTrafficState(light->trafficDirectionNext, light->buttons.Left_NS, light->buttons.Right_NS, light->buttons.Top_EW, light->buttons.Bottom_EW);
 }
-/* Missing L2 wrapper: use the same selector with L2's own data. */
+// L2 wrapper
 TrafficState TrafficLogicNodeL2(void *state_ptr) {
     return TrafficLogicNode(state_ptr);
 }
@@ -1208,7 +1243,7 @@ void StateOutput(TrafficState state, Movements *output) {
                 .ES = 1, .SE = 1, .Top_EW = 1, .Bottom_EW = 1
             };
             break;
-        /* Missing mappings for states already used in your selector. */
+        // extra states
         case STATE_NE_ES_EN_Left_NS:
             *output = (Movements){.NE = 1, .ES = 1, .EN = 1, .Left_NS = 1};
             break;
