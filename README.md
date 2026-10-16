@@ -1,10 +1,4 @@
-# Your seven nodes connected to the 2D display
-
-Build and run instructions are in **CHANNEL_SETUP.md**. All required source,
-headers and adapter files are included. Keep them together when compiling.
-Each node is a separate executable; do not combine their main functions.
-
-## What changed
+## Changes
 
 - **Traffic L1:** added one simulator input server and one display status client.
   The input changes only `storedDirection`; the status uses `outputL1` and the
